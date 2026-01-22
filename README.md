@@ -1,100 +1,154 @@
-# CCTV Streaming Private Project
+# CCTV_Streaming
 
-## 목표
-- **[Front]** 리액트 마스터  
-- **[Back]** 스프링 마스터  
-- **[Embedded]** WebRTC & RTSP 마스터  
-- **[DB]** 최신 SQL 기술(MySQL / PostgreSQL) 마스터  
+ESP32(또는 RTSP 소스)에서 들어오는 영상을 **웹에서 실시간으로 확인**할 수 있는 PoC입니다.  
+현재는 **Python 게이트웨이(aiortc)**로 RTSP/파일을 WebRTC로 변환하고, **Spring Boot는 시그널링**만 담당합니다.
 
-## 기능 명세
+---
 
-### [ESP32]
-- **ESP32-CAM**으로 실시간 영상 촬영  
-- **FFmpeg / GStreamer**를 이용한 **RTSP 변환 (C++)**  
-- 네트워크 설정 및 **고정 IP 구성**  
-- **자동 재연결 및 상태 모니터링** 기능 구현  
+## 구성 요약
 
-### [Back-End]
-- **Spring Boot** 기반 스트리밍 관리 서버  
-- **RTSP → WebRTC 변환 게이트웨이** 연동  
-  - FFmpeg 또는 Janus/mediasoup를 이용한 실시간 변환  
-- **JWT 기반 인증 및 권한 관리 시스템**  
-- **스트림 제어 API**
-  - 시작 / 중지 / 상태 확인 / 스냅샷 요청  
-- **영상 녹화 및 로그 관리** 기능  
-- **카메라 메타데이터 관리**
-  - 이름, URL, 상태, 등록일, 위치 정보  
+### 기본 모드 (WebRTC)
 
-### [Front-End]
-- **React 기반 CCTV 대시보드**
-  - 전체 카메라 실시간 모니터링  
-  - 개별 영상 재생(저지연 WebRTC 지원)  
-  - 상태 표시 및 연결 알림  
-- **WebRTC / HLS.js** 기반 플레이어 통합  
-- **녹화 영상 및 스냅샷 조회 페이지**
-  - 기간별 / 카메라별 검색  
-- **관리자 기능**
-  - 카메라 등록·삭제, 사용자 권한 관리  
-
-### [Database]
-- **MySQL** 또는 **PostgreSQL** 사용  
-- 주요 테이블  
-  - `users` : 사용자 정보 및 권한  
-  - `cameras` : RTSP / WebRTC 스트림 정보  
-  - `streams` : 실시간 세션 기록  
-  - `recordings` : 저장된 영상 메타데이터  
-  - `logs` : 이벤트 및 오류 로그  
-- 트랜잭션 관리 및 외래키 제약으로 데이터 무결성 확보
-
-## 빠른 시작 (PoC)
-
-이 저장소에는 RTSP를 받아 WebRTC로 전달하는 간단한 PoC가 포함되어 있습니다.
-
-필수 도구:
-
-- JDK 17+
-- Gradle
-- Python 3.9+
-- ffmpeg (`brew install ffmpeg`)
-- rtsp-simple-server (`https://github.com/aler9/rtsp-simple-server`) — 바이너리를 내려받아 실행하세요
-
-1. RTSP 서버 실행 (rtsp-simple-server)
-
-1. `video.mp4`를 RTSP로 푸시 (ESP32 모사)
-
-```bash
-cd apps/esp32cam
-./rtsp_publish.sh
+```
+RTSP/파일 → Python Gateway(aiortc) → Spring Boot(시그널링) → React(WebRTC)
 ```
 
-1. Gateway (aiortc) 실행
+- 장점: 지연이 낮음(실시간에 가까움)
+- 단점: NAT 환경은 TURN 필요
+
+### 선택 모드 (HLS, 저장/뒤로가기용)
+
+```
+RTSP → ffmpeg(HLS) → Spring Boot(정적 서빙) → React(HLS 재생)
+```
+
+- 장점: 저장/뒤로가기 구현 쉬움
+- 단점: 지연(보통 수 초) 발생
+
+---
+
+## 빠른 시작 (WebRTC)
+
+### 1) 필수 도구 설치
 
 ```bash
+# macOS (예시)
+brew install --cask temurin
+brew install ffmpeg pkg-config
+brew install node
+```
+
+### 2) 백엔드 실행 (시그널링)
+
+```bash
+apps/back-end/run.sh
+```
+
+### 3) 게이트웨이 실행 (파일 → WebRTC)
+
+```bash
+export SOURCE_MODE=file
+export LOCAL_FILE=/Users/juno/Workspace/CCTV_Streaming/docs/video.mp4
+
 cd apps/esp32cam
 python3 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip setuptools wheel cython
 pip install -r requirements.txt
 python gateway.py
 ```
 
-1. Spring 백엔드 실행
+현재는 스트림 ID가 `mystream`으로 **고정**되어 있습니다.
+
+### 4) 프론트 실행
 
 ```bash
-cd apps/back-end
-./gradlew bootRun
+npm --prefix apps/front-end run dev
 ```
 
-1. 프론트엔드 실행
+브라우저에서 `http://localhost:5173` 접속 후 **시작** 클릭.
+
+---
+
+## HLS 모드 실행 (선택)
+
+### 1) 백엔드 실행
 
 ```bash
-cd apps/front-end
-npm install
-npm run dev
+apps/back-end/run.sh
 ```
 
-브라우저에서 프론트엔드로 접속하여 "시작" 버튼을 눌러 스트림을 확인하세요.
+### 2) RTSP → HLS 변환
 
-간단한 상태 확인
+```bash
+chmod +x scripts/rtsp_to_hls.sh
+./scripts/rtsp_to_hls.sh
+```
 
-- 백엔드가 실행 중이면 `http://localhost:8080/health` 로 상태를 확인하세요.
-- 등록된 스트림 목록은 `http://localhost:8080/streams` 에서 확인 가능합니다.
+### 3) 프론트에서 HLS 플레이어 사용
+
+현재 `App.jsx`는 WebRTC 플레이어를 기본으로 사용합니다.  
+HLS 테스트를 하려면 `apps/front-end/src/App.jsx`에서 `HlsPlayer`로 바꾸세요.
+
+HLS 기본 URL:
+```
+http://localhost:8080/hls/mystream.m3u8
+```
+
+---
+
+## 환경 변수
+
+### gateway.py
+
+- `SIGNAL_URL` : 시그널링 서버 URL (기본 `ws://localhost:8080/signal`)
+- `RTSP_URL` : RTSP 소스 URL (기본 `rtsp://localhost:8554/mystream`)
+- `LOCAL_FILE` : 파일 폴백 경로 (기본 `docs/video.mp4`)
+- `SOURCE_MODE` : `auto|rtsp|file` (기본 `auto`)
+- `LOOP_FILE` : 로컬 파일 루프 (기본 `true`)
+- `ICE_SERVERS` : WebRTC ICE 서버(JSON)
+- `RTSP_OPTIONS` : ffmpeg RTSP 옵션(JSON)
+- `LOG_LEVEL` : 로그 레벨 (기본 `INFO`)
+- `STATS_INTERVAL` : 전송 통계 로그 주기(초, 기본 0)
+
+### front-end
+
+- `VITE_ICE_SERVERS` : ICE 서버(JSON)
+- `VITE_DEBUG_WEBRTC` : `true`면 WebRTC 디버그 로그 출력
+- `VITE_HLS_BASE_URL` : HLS 기본 URL
+- `VITE_HLS_URL` : 전체 HLS URL
+
+### back-end
+
+- `hls.path` : HLS 파일 경로 (`apps/back-end/src/main/resources/application.properties`)
+
+---
+
+## 트러블슈팅
+
+- **검은 화면**  
+  - `gateway.py` 로그에서 `Added video track from source` 확인  
+  - `STATS_INTERVAL=2`로 설정 후 `video_bytes` 증가 확인
+
+- **WebSocket 연결 실패**  
+  - `apps/back-end/run.sh`로 서버 실행 상태 확인  
+  - `ws://localhost:8080/signal` 접근 가능 확인
+
+- **외부망 연결 실패**  
+  - TURN 서버 필요 가능성 높음  
+  - `ICE_SERVERS`에 TURN 추가
+
+---
+
+## 폴더 구조
+
+```
+apps/
+  back-end/     # Spring Boot (시그널링 + HLS 정적 서빙)
+  esp32cam/     # Python 게이트웨이 (RTSP/파일 → WebRTC)
+  front-end/    # React 플레이어
+scripts/
+  rtsp_to_hls.sh
+docs/
+  video.mp4
+```
