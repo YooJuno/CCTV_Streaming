@@ -46,7 +46,13 @@ public class SignalWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        JsonNode node = mapper.readTree(message.getPayload());
+        JsonNode node;
+        try {
+            node = mapper.readTree(message.getPayload());
+        } catch (Exception e) {
+            logger.warn("Invalid JSON from {}: {}", session.getId(), e.getMessage());
+            return;
+        }
         String type = node.has("type") ? node.get("type").asText() : null;
 
         switch (type) {
@@ -59,10 +65,10 @@ public class SignalWebSocketHandler extends TextWebSocketHandler {
             case "offer":
             case "answer":
             case "ice":
-                forwardToSession(node);
+                forwardToSession(session, node);
                 break;
             default:
-                // unknown message type, ignore or log
+                logger.debug("Unhandled message type: {}", type);
                 break;
         }
     }
@@ -111,18 +117,22 @@ public class SignalWebSocketHandler extends TextWebSocketHandler {
         logger.info("Forwarded watch request from client {} to gateway {} for stream {}", session.getId(), gatewaySessionId, streamId);
     }
 
-    private void forwardToSession(JsonNode node) throws IOException {
-        // messages from gateway include clientSessionId field
-        if (node.has("clientSessionId")) {
-            String clientId = node.get("clientSessionId").asText();
-            WebSocketSession client = sessions.get(clientId);
-            if (client != null && client.isOpen()) {
-                client.sendMessage(new TextMessage(node.toString()));
+    private void forwardToSession(WebSocketSession sender, JsonNode node) throws IOException {
+        boolean senderIsGateway = streamGateways.containsValue(sender.getId());
+
+        if (senderIsGateway) {
+            // Gateway -> Client
+            if (node.has("clientSessionId")) {
+                String clientId = node.get("clientSessionId").asText();
+                WebSocketSession client = sessions.get(clientId);
+                if (client != null && client.isOpen()) {
+                    client.sendMessage(new TextMessage(node.toString()));
+                }
             }
             return;
         }
 
-        // messages from client that should be sent to a gateway include gatewaySessionId
+        // Client -> Gateway
         if (node.has("gatewaySessionId")) {
             String gatewayId = node.get("gatewaySessionId").asText();
             WebSocketSession gateway = sessions.get(gatewayId);
