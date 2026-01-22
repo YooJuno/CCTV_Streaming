@@ -1,6 +1,9 @@
 # CCTV Front End
 
-간단한 React + Vite 웹앱입니다. macOS에서 개발을 시작하려면 아래 명령을 사용하세요.
+React + Vite 앱이며, WebRTC/HLS 플레이어를 포함합니다.  
+전체 실행 방법은 저장소 루트 `README.md`를 참고하세요.
+
+로컬 개발 (Vite)
 
 1. 의존성 설치
 
@@ -16,5 +19,3 @@ npm run dev
 ```
 
 브라우저에서 표시된 로컬 주소(`http://localhost:5173` 등)로 접속하면 됩니다.
-
-추가로 TypeScript, 라우팅, 실제 카메라 스트리밍 통합 등이 필요하면 알려주세요.
