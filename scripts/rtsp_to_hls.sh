@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,8 +25,8 @@ echo "HLS_TIME=$HLS_TIME"
 echo "HLS_LIST_SIZE=$HLS_LIST_SIZE"
 echo "HLS_DELETE=$HLS_DELETE"
 
-# 기본은 복사(무트랜스코딩). ESP32가 H.264이면 그대로 재생됩니다.
-# MJPEG 등 비호환 코덱이면 아래 옵션으로 트랜스코딩을 고려하세요.
+# Default: stream copy (no transcode). If the RTSP source is H.264, it will pass through.
+# If the source is MJPEG or another codec, consider transcoding:
 #   -c:v libx264 -preset veryfast -tune zerolatency -c:a aac -b:a 128k
 ffmpeg -rtsp_transport tcp -i "$RTSP_URL" \
   -c copy \
