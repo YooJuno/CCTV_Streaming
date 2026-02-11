@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 
 const isDebug = () => {
   const raw = import.meta.env.VITE_DEBUG_WEBRTC;
@@ -145,7 +145,12 @@ export default function StreamPlayer({
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             ws.send(
-              JSON.stringify({ type: "answer", sdp: answer.sdp, gatewaySessionId: msg.gatewaySessionId, clientSessionId: msg.clientSessionId })
+              JSON.stringify({
+                type: "answer",
+                sdp: answer.sdp,
+                gatewaySessionId: msg.gatewaySessionId,
+                clientSessionId: msg.clientSessionId,
+              })
             );
           } else if (msg.type === "ice" && msg.candidate) {
             try {
@@ -293,27 +298,17 @@ export default function StreamPlayer({
       {showStatus && (
         <div className="status-bar">
           <span className={`status-pill ${String(status).replace(/[^a-z0-9]/gi, "_")}`}>{status}</span>
-          <span className={`status-pill ice`}>ice:{iceStatus}</span>
+          <span className="status-pill ice">ice:{iceStatus}</span>
           <span className={`status-pill ${playbackState}`}>play:{playbackState}</span>
-          <span className="status-meta">
-            last frame: {lastFrameDelta === null ? "-" : `${lastFrameDelta}s`}
-          </span>
+          <span className="status-meta">last frame: {lastFrameDelta === null ? "-" : `${lastFrameDelta}s`}</span>
         </div>
       )}
       <div className="control-bar">
-        <button
-          type="button"
-          className="btn secondary"
-          onClick={() => videoRef.current && videoRef.current.play()}
-        >
-          재생
+        <button type="button" className="btn secondary" onClick={() => videoRef.current && videoRef.current.play()}>
+          Play
         </button>
-        <button
-          type="button"
-          className="btn secondary"
-          onClick={() => videoRef.current && videoRef.current.pause()}
-        >
-          정지
+        <button type="button" className="btn secondary" onClick={() => videoRef.current && videoRef.current.pause()}>
+          Pause
         </button>
         <button
           type="button"
@@ -326,7 +321,7 @@ export default function StreamPlayer({
             });
           }}
         >
-          {isMuted ? "음소거 해제" : "음소거"}
+          {isMuted ? "Unmute" : "Mute"}
         </button>
         <button
           type="button"
@@ -341,7 +336,7 @@ export default function StreamPlayer({
             }
           }}
         >
-          {isFullscreen ? "전체화면 종료" : "전체화면"}
+          {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
         </button>
       </div>
     </div>
