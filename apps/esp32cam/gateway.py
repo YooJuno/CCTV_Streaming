@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Simple media gateway using aiortc that registers with Spring signaling and answers WebRTC watchers
-It reads from an RTSP source (rtsp://localhost:8554/mystream) or falls back to local video.mp4 if RTSP is unavailable.
+Simple media gateway using aiortc that registers with Spring signaling and answers WebRTC watchers.
+It reads from RTSP or MJPEG sources and can fall back to a local video file when configured.
 
 Requirements:
   pip install -r requirements.txt
@@ -36,13 +36,15 @@ logger = logging.getLogger("gateway")
 
 SIGNAL_URL = os.environ.get("SIGNAL_URL", "ws://localhost:8080/signal")
 RTSP_URL = os.environ.get("RTSP_URL", "rtsp://localhost:8554/mystream")
+MJPEG_URL = os.environ.get("MJPEG_URL", "")
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LOCAL_FILE = os.environ.get("LOCAL_FILE", os.path.join(ROOT_DIR, "docs", "video.mp4"))
 ICE_SERVERS_ENV = os.environ.get("ICE_SERVERS", "")
 RTSP_OPTIONS_ENV = os.environ.get("RTSP_OPTIONS", "")
+MJPEG_OPTIONS_ENV = os.environ.get("MJPEG_OPTIONS", "")
 STREAM_ID = "mystream"
 LOOP_FILE = os.environ.get("LOOP_FILE", "true").lower() in ("1", "true", "yes", "y")
-SOURCE_MODE = os.environ.get("SOURCE_MODE", "auto").lower()  # auto | rtsp | file
+SOURCE_MODE = os.environ.get("SOURCE_MODE", "auto").lower()  # auto | rtsp | mjpeg | file
 STATS_INTERVAL = float(os.environ.get("STATS_INTERVAL", "0"))
 STREAMS_JSON = os.environ.get("STREAMS_JSON", "")
 
@@ -63,6 +65,7 @@ def load_stream_configs():
                 "id": STREAM_ID,
                 "mode": SOURCE_MODE,
                 "rtsp": RTSP_URL,
+                "mjpeg": MJPEG_URL,
                 "file": LOCAL_FILE,
                 "loop": LOOP_FILE,
             }
@@ -80,6 +83,7 @@ def load_stream_configs():
                 "id": stream_id,
                 "mode": (item.get("mode") or SOURCE_MODE).lower(),
                 "rtsp": item.get("rtsp") or RTSP_URL,
+                "mjpeg": item.get("mjpeg") or MJPEG_URL,
                 "file": item.get("file") or LOCAL_FILE,
                 "loop": bool(item.get("loop", LOOP_FILE)),
             }
@@ -91,6 +95,7 @@ def load_stream_configs():
                 "id": STREAM_ID,
                 "mode": SOURCE_MODE,
                 "rtsp": RTSP_URL,
+                "mjpeg": MJPEG_URL,
                 "file": LOCAL_FILE,
                 "loop": LOOP_FILE,
             }
@@ -153,12 +158,33 @@ ICE_SERVERS = load_ice_servers()
 RTSP_OPTIONS = load_rtsp_options()
 
 
+def load_mjpeg_options():
+    if not MJPEG_OPTIONS_ENV:
+        return {}
+    try:
+        return json.loads(MJPEG_OPTIONS_ENV)
+    except Exception as e:
+        logger.warning("Failed to parse MJPEG_OPTIONS: %s", e)
+        return {}
+
+
+MJPEG_OPTIONS = load_mjpeg_options()
+
+
 def build_file_player(file_path, loop_file):
     options = {"stream_loop": "-1"} if loop_file else {}
     try:
         return MediaPlayer(file_path, loop=loop_file, options=options or None)
     except TypeError:
         return MediaPlayer(file_path, options=options or None)
+
+
+def build_mjpeg_player(url):
+    options = MJPEG_OPTIONS or None
+    try:
+        return MediaPlayer(url, options=options)
+    except TypeError:
+        return MediaPlayer(url)
 
 
 def source_ended(source):
@@ -201,6 +227,7 @@ async def get_media_source(stream_id):
         cfg = STREAM_CONFIGS[stream_id]
         source_mode = cfg.get("mode", SOURCE_MODE)
         rtsp_url = cfg.get("rtsp", RTSP_URL)
+        mjpeg_url = cfg.get("mjpeg", MJPEG_URL)
         file_path = cfg.get("file", LOCAL_FILE)
         loop_file = bool(cfg.get("loop", LOOP_FILE))
 
@@ -213,6 +240,19 @@ async def get_media_source(stream_id):
                     return media_source
             except Exception as e:
                 logger.warning("RTSP open failed: %s", e)
+
+        if source_mode in ("auto", "mjpeg"):
+            if not mjpeg_url:
+                logger.warning("MJPEG source requested but MJPEG_URL is empty for %s", stream_id)
+            else:
+                try:
+                    logger.info("Trying MJPEG source %s for %s", mjpeg_url, stream_id)
+                    media_source = build_mjpeg_player(mjpeg_url)
+                    if getattr(media_source, "video", None) or getattr(media_source, "audio", None):
+                        stream_sources[stream_id] = media_source
+                        return media_source
+                except Exception as e:
+                    logger.warning("MJPEG open failed: %s", e)
 
         if source_mode in ("auto", "file"):
             if os.path.exists(file_path):
@@ -257,8 +297,8 @@ async def shutdown():
 
 
 async def run():
-    if SOURCE_MODE not in ("auto", "rtsp", "file"):
-        logger.warning("Unknown SOURCE_MODE=%s (expected auto|rtsp|file)", SOURCE_MODE)
+    if SOURCE_MODE not in ("auto", "rtsp", "mjpeg", "file"):
+        logger.warning("Unknown SOURCE_MODE=%s (expected auto|rtsp|mjpeg|file)", SOURCE_MODE)
 
     try:
         async with websockets.connect(SIGNAL_URL) as ws:
