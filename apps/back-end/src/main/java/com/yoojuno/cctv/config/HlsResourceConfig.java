@@ -15,6 +15,8 @@ public class HlsResourceConfig implements WebMvcConfigurer {
     private String hlsPath;
     @Value("${hls.allowed-origins:*}")
     private String[] hlsAllowedOrigins;
+    @Value("${hls.allowed-methods:GET,HEAD,OPTIONS}")
+    private String[] hlsAllowedMethods;
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
@@ -28,7 +30,7 @@ public class HlsResourceConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/hls/**")
                 .allowedOrigins(hlsAllowedOrigins)
-                .allowedMethods("GET", "HEAD", "OPTIONS")
+                .allowedMethods(hlsAllowedMethods)
                 .allowedHeaders("*")
                 .maxAge(3600);
     }
