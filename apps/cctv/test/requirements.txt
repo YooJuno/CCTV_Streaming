@@ -1,4 +1,0 @@
-aioice==0.10.2
-aiortc==1.14.0
-av==16.1.0
-websockets==16.0
