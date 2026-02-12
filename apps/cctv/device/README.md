@@ -1,58 +1,80 @@
-﻿# ESP32-CAM 펌웨어 (PlatformIO)
+# ESP32-CAM firmware (PlatformIO)
 
-이 폴더는 ESP32‑CAM이 HTTP로 MJPEG 스트림을 내보내는 PlatformIO 프로젝트를 포함합니다.
+This folder contains a PlatformIO project that streams MJPEG over HTTP from ESP32-CAM.
 
-## 프로젝트 위치
+## Project path
 
 - `apps/cctv/device/`
 
-## PlatformIO (VS Code) 업로드 요약
+## PlatformIO upload summary
 
-1) VS Code 설치
-2) PlatformIO IDE 확장 설치
-3) 폴더 열기: `apps/cctv/device`
-4) `main.cpp`에서 Wi‑Fi 정보 수정
+1) Install VS Code
+2) Install PlatformIO IDE extension
+3) Open folder: `apps/cctv/device`
+4) Configure Wi-Fi (choose one)
+
+- Option A: set build flags in `platformio.ini` (recommended)
+- Option B: keep defaults in `main.cpp` and replace placeholder macros
 
 ```cpp
-const char *WIFI_SSID = "YOUR_WIFI_SSID";
-const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+#ifndef WIFI_SSID
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#endif
 ```
 
-5) 업로드 모드 진입
+5) Enter upload mode
 
-- `IO0` -> `GND` 연결
-- `RST` 버튼 눌러 리셋
+- Connect `IO0` to `GND`
+- Press `RST`
 
-6) PlatformIO에서 Upload 실행
+6) Upload from PlatformIO (`Ctrl+Alt+U`)
 
-- 좌측 PlatformIO 탭 -> `Upload`
-- 또는 단축키: `Ctrl+Alt+U`
+7) After upload
 
-7) 업로드 후
+- Disconnect `IO0` from `GND`
+- Press `RST` again
 
-- `IO0` -> `GND` 연결 해제
-- `RST` 버튼 눌러 재부팅
+8) Serial monitor at `115200`
 
-8) 시리얼 모니터
+## URLs
 
-- PlatformIO 탭 -> `Monitor`
-- 보드레이트: `115200`
+- Status page: `http://<device-ip>/`
+- MJPEG stream: `http://<device-ip>:81/stream`
 
-※ 업로드가 자주 실패하면 `platformio.ini`의 `upload_speed`를 `115200`으로 낮춰보세요.
+## Integration with this repo
 
-## URL
+The current app path is RTSP -> HLS.
 
-- 상태 페이지: `http://<device-ip>/`
-- MJPEG 스트림: `http://<device-ip>:81/stream`
+This firmware outputs MJPEG, so you need a gateway step before HLS generation.
 
-## 연동
-
-테스트 중계 실행 시 아래 환경 변수를 사용합니다.
+Example gateway command:
 
 ```bash
-export SOURCE_MODE=mjpeg
-export MJPEG_URL=http://<device-ip>:81/stream
-python apps/cctv/test/webrtc_relay.py
+ffmpeg -f mjpeg -i http://<device-ip>:81/stream -c:v libx264 -f rtsp rtsp://<rtsp-server>:8554/mystream
 ```
 
-더 자세한 설명은 `apps/cctv/test/README.md`를 참고하세요.
+Then run:
+
+```bash
+RTSP_URL=rtsp://<rtsp-server>:8554/mystream scripts/rtsp_to_hls.sh
+```
+
+## PC test publisher (local file -> RTSP)
+
+`apps/cctv/device/pc_rtsp_publisher.py` provides a PC-side test source that loops `docs/video.mp4` forever and publishes to RTSP.
+
+PowerShell example:
+
+```powershell
+python .\apps\cctv\device\pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
+```
+
+Options:
+
+- `--video`: input file path (default: `<repo>/docs/video.mp4`)
+- `--rtsp-url`: target RTSP URL
+- `--transport`: `tcp` or `udp` (default: `tcp`)
+- `--transcode`: force H.264/AAC encoding instead of stream copy
