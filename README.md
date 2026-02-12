@@ -1,39 +1,62 @@
-﻿# CCTV_Streaming
+# CCTV_Streaming
 
-PoC for real-time CCTV streaming with a Python WebRTC relay (test app), Spring Boot signaling, and a React player.
+RTSP to HLS CCTV streaming PoC.
 
 ## Architecture
 
-WebRTC (default):
-
-```
-RTSP/MJPEG/Local File -> Python Relay (aiortc) -> Spring Boot (signaling) -> React WebRTC Player
+```text
+RTSP Camera -> ffmpeg (HLS) -> Spring Boot (/hls static) -> React (hls.js)
 ```
 
-Optional HLS:
+## Components
 
-```
-RTSP -> ffmpeg (HLS) -> Spring Boot (static /hls) -> React HLS Player
-```
+- `apps/back-end`: Spring Boot API + HLS static file serving
+- `apps/front-end`: React player using `hls.js`
+- `scripts/rtsp_to_hls.sh`: RTSP to HLS conversion
+- `scripts/publish_rtsp.sh`: local RTSP source publisher (optional)
+- `scripts/rtsp_to_hls.ps1`: Windows PowerShell RTSP to HLS conversion
+- `scripts/publish_rtsp.ps1`: Windows PowerShell local RTSP source publisher
+- `apps/cctv/device/pc_rtsp_publisher.py`: PC RTSP publisher using local video
 
-## Quick Start (WebRTC)
+## Quick Start (HLS only)
 
-1) Start back-end (signaling server)
+Prerequisites:
+
+- Java 17+
+- Node.js 18+
+- `ffmpeg`
+
+1) Start back-end
 
 ```bash
 apps/back-end/run.sh
 ```
 
-2) Start test relay
+Windows (PowerShell):
+
+```powershell
+cd apps/back-end
+.\gradlew.bat bootRun
+```
+
+2) Convert RTSP to HLS
 
 ```bash
-cd apps/cctv/test
-python -m venv venv
-venv\Scripts\activate  # Windows
-# or: source venv/bin/activate  # macOS/Linux
-pip install --upgrade pip setuptools wheel cython
-pip install -r requirements.txt
-python webrtc_relay.py
+# Example
+RTSP_URL=rtsp://<camera-host>/stream1 STREAM_ID=mystream scripts/rtsp_to_hls.sh
+```
+
+If you need a local RTSP source for testing:
+
+```bash
+python apps/cctv/device/pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
+```
+
+Windows users can use PowerShell scripts:
+
+```powershell
+.\scripts\publish_rtsp.ps1 -RtspUrl rtsp://localhost:8554/mystream
+.\scripts\rtsp_to_hls.ps1 -RtspUrl rtsp://localhost:8554/mystream -StreamId mystream
 ```
 
 3) Start front-end
@@ -43,83 +66,37 @@ npm --prefix apps/front-end install
 npm --prefix apps/front-end run dev
 ```
 
-Open `http://localhost:5173` in the browser.
+4) Open player
 
-## Quick Start (HLS)
+- Front-end: `http://localhost:5173`
+- HLS manifest example: `http://localhost:8080/hls/mystream.m3u8`
 
-1) Start back-end
+## RTSP to HLS script variables
 
-```bash
-apps/back-end/run.sh
-```
+- `RTSP_URL`: input RTSP URL
+- `STREAM_ID`: output stream id (`<streamId>.m3u8`)
+- `HLS_DIR`: output directory (default `apps/back-end/hls`)
+- `HLS_TIME`: segment duration seconds (default `2`)
+- `HLS_LIST_SIZE`: manifest window size (default `10`)
+- `HLS_DELETE`: delete old segments (`true|false`)
+- `RTSP_TRANSPORT`: `tcp|udp` (default `tcp`)
+- `TRANSCODE`: force H.264/AAC transcoding (`true|false`, default `false`)
+- `VIDEO_CODEC`: ffmpeg video codec when transcoding (default `libx264`)
+- `AUDIO_CODEC`: ffmpeg audio codec when transcoding (default `aac`)
 
-2) Convert RTSP to HLS
+Front-end options:
 
-```bash
-scripts/rtsp_to_hls.sh
-```
+- `VITE_HLS_BASE_URL`: base URL for manifests
+- `VITE_HLS_URL`: full manifest URL override
+- `VITE_STREAM_ID`: default stream id shown in UI
 
-3) Switch front-end to HLS (optional)
+Back-end options:
 
-`apps/front-end/src/App.jsx` can be updated to render `HlsPlayer` instead of `StreamPlayer`.
+- `hls.path`: directory served as `/hls/**`
+- `hls.allowed-origins`: comma-separated CORS origins for HLS resources
 
-HLS base URL:
+## Notes for ESP32-CAM
 
-```
-http://localhost:8080/hls/mystream.m3u8
-```
+Current firmware in `apps/cctv/device` outputs MJPEG over HTTP (`http://<device-ip>:81/stream`), not RTSP.
 
-## ESP32-CAM
-
-Firmware project (PlatformIO):
-
-- `apps/cctv/device/platformio-esp32cam-mjpeg`
-
-After flashing, configure the test relay to read the MJPEG stream:
-
-```bash
-export SOURCE_MODE=mjpeg
-export MJPEG_URL=http://<device-ip>:81/stream
-python apps/cctv/test/webrtc_relay.py
-```
-
-## Environment Variables
-
-### Test Relay (`apps/cctv/test/webrtc_relay.py`)
-
-- `SIGNAL_URL`: signaling server WebSocket URL (`ws://localhost:8080/signal`)
-- `SOURCE_MODE`: `auto|rtsp|mjpeg|file` (default `auto`)
-- `RTSP_URL`: RTSP URL (`rtsp://localhost:8554/mystream`)
-- `MJPEG_URL`: MJPEG URL (`http://<device-ip>:81/stream`)
-- `LOCAL_FILE`: local fallback file (`docs/video.mp4`)
-- `LOOP_FILE`: loop local file (`true`/`false`)
-- `ICE_SERVERS`: JSON array for ICE servers
-- `RTSP_OPTIONS`: JSON for ffmpeg RTSP options
-- `MJPEG_OPTIONS`: JSON for ffmpeg MJPEG options
-- `LOG_LEVEL`: log level (default `INFO`)
-- `STATS_INTERVAL`: outbound stats interval in seconds (0 disables)
-
-### Front-end
-
-- `VITE_SIGNAL_URL`: WebSocket signaling URL
-- `VITE_ICE_SERVERS`: JSON array for ICE servers
-- `VITE_DEBUG_WEBRTC`: `true` to enable logs
-- `VITE_HLS_BASE_URL`: HLS base URL
-- `VITE_HLS_URL`: full HLS URL override
-
-### Back-end
-
-- `hls.path`: HLS output path (`apps/back-end/src/main/resources/application.properties`)
-
-## Directory Layout
-
-```
-apps/
-  back-end/     # Spring Boot (signaling + HLS static)
-  cctv/
-    device/     # ESP32-CAM firmware (PlatformIO)
-    test/       # Python WebRTC relay (local/MJPEG/RTSP test)
-  front-end/    # React player
-scripts/
-  rtsp_to_hls.sh
-```
+If you must keep RTSP-first architecture, put a small media gateway in front of ESP32 to republish as RTSP, then run `scripts/rtsp_to_hls.sh`.
