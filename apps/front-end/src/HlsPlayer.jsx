@@ -8,51 +8,67 @@ export default function HlsPlayer({ streamId = "mystream" }) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return undefined;
+    let disposed = false;
 
     const baseUrl = import.meta.env.VITE_HLS_BASE_URL || "http://localhost:8080/hls";
     const url = import.meta.env.VITE_HLS_URL || `${baseUrl}/${streamId}.m3u8`;
 
     setStatus("loading");
 
+    const cleanupVideo = () => {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
       video.play().then(() => setStatus("playing")).catch(() => setStatus("loaded"));
       return () => {
-        video.pause();
-        video.removeAttribute("src");
-        video.load();
+        disposed = true;
+        cleanupVideo();
       };
     }
 
-    if (!window.Hls) {
-      setStatus("hls.js not loaded");
-      return undefined;
-    }
+    (async () => {
+      try {
+        const hlsModule = await import("hls.js");
+        const Hls = hlsModule.default;
+        if (disposed) return;
+        if (!Hls || !Hls.isSupported()) {
+          setStatus("hls unsupported");
+          return;
+        }
 
-    const hls = new window.Hls({
-      lowLatencyMode: true,
-      backBufferLength: 120,
-    });
-    hlsRef.current = hls;
-    hls.loadSource(url);
-    hls.attachMedia(video);
+        const hls = new Hls({
+          lowLatencyMode: true,
+          backBufferLength: 120,
+        });
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
 
-    hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-      video.play().then(() => setStatus("playing")).catch(() => setStatus("loaded"));
-    });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().then(() => setStatus("playing")).catch(() => setStatus("loaded"));
+        });
 
-    hls.on(window.Hls.Events.ERROR, () => {
-      setStatus("error");
-    });
+        hls.on(Hls.Events.ERROR, () => {
+          setStatus("error");
+        });
+      } catch (error) {
+        if (!disposed) {
+          setStatus("hls load failed");
+        }
+      }
+    })();
 
     return () => {
+      disposed = true;
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
+      cleanupVideo();
     };
   }, [streamId]);
 
