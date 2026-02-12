@@ -26,6 +26,7 @@ export default function StreamPlayer({
   const [isMuted, setIsMuted] = useState(initialMuted);
   const [lastFrameDelta, setLastFrameDelta] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const applyMute = (mutedValue) => {
     isMutedRef.current = mutedValue;
@@ -54,6 +55,9 @@ export default function StreamPlayer({
       const log = debug ? (...args) => console.log(...args) : () => {};
       const warn = debug ? (...args) => console.warn(...args) : () => {};
       const error = debug ? (...args) => console.error(...args) : () => {};
+      let reconnectScheduled = false;
+      let reconnectTimer = null;
+      let stopped = false;
 
       setStatus("connecting");
       const iceServers = (() => {
@@ -128,6 +132,20 @@ export default function StreamPlayer({
       const ws = new WebSocket(signalingUrl);
       wsRef.current = ws;
 
+      const scheduleReconnect = () => {
+        if (!mounted || stopped || reconnectScheduled) {
+          return;
+        }
+        reconnectScheduled = true;
+        setStatus("reconnecting");
+        reconnectTimer = setTimeout(() => {
+          if (!mounted || stopped) {
+            return;
+          }
+          setReconnectAttempt((value) => value + 1);
+        }, 1500);
+      };
+
       ws.onopen = () => {
         log("ws open");
         setStatus("connected");
@@ -144,13 +162,16 @@ export default function StreamPlayer({
             await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            const answerMessage = {
+              type: "answer",
+              sdp: answer.sdp,
+              clientSessionId: msg.clientSessionId,
+            };
+            if (msg.gatewaySessionId) {
+              answerMessage.gatewaySessionId = msg.gatewaySessionId;
+            }
             ws.send(
-              JSON.stringify({
-                type: "answer",
-                sdp: answer.sdp,
-                gatewaySessionId: msg.gatewaySessionId,
-                clientSessionId: msg.clientSessionId,
-              })
+              JSON.stringify(answerMessage)
             );
           } else if (msg.type === "ice" && msg.candidate) {
             try {
@@ -166,19 +187,35 @@ export default function StreamPlayer({
         }
       };
 
-      ws.onclose = () => setStatus("ws-closed");
-      ws.onerror = () => setStatus("ws-error");
+      ws.onclose = () => {
+        if (!mounted || stopped) {
+          return;
+        }
+        setStatus("ws-closed");
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {
+        if (!mounted || stopped) {
+          return;
+        }
+        setStatus("ws-error");
+        scheduleReconnect();
+      };
 
       pc.onicecandidate = (e) => {
         log("Local ICE candidate", e.candidate);
-        if (e.candidate && ws.readyState === WebSocket.OPEN && clientSessionRef.current && gatewaySessionRef.current) {
+        if (e.candidate && ws.readyState === WebSocket.OPEN && clientSessionRef.current) {
+          const iceMessage = {
+            type: "ice",
+            candidate: e.candidate,
+            clientSessionId: clientSessionRef.current,
+          };
+          if (gatewaySessionRef.current) {
+            iceMessage.gatewaySessionId = gatewaySessionRef.current;
+          }
           ws.send(
-            JSON.stringify({
-              type: "ice",
-              candidate: e.candidate,
-              clientSessionId: clientSessionRef.current,
-              gatewaySessionId: gatewaySessionRef.current,
-            })
+            JSON.stringify(iceMessage)
           );
         }
       };
@@ -244,6 +281,8 @@ export default function StreamPlayer({
         };
 
         return () => {
+          stopped = true;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
           document.removeEventListener("fullscreenchange", onFullscreenChange);
           cleanupVideo();
           mounted = false;
@@ -264,6 +303,8 @@ export default function StreamPlayer({
       }
 
       return () => {
+        stopped = true;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
         document.removeEventListener("fullscreenchange", onFullscreenChange);
         mounted = false;
         if (recvInterval) clearInterval(recvInterval);
@@ -285,12 +326,13 @@ export default function StreamPlayer({
     const cleanupPromise = start();
 
     return () => {
+      mounted = false;
       // ensure cleanup runs
       if (cleanupPromise && typeof cleanupPromise.then === "function") {
         cleanupPromise.then((fn) => fn && fn());
       }
     };
-  }, [streamId, signalingUrl]);
+  }, [streamId, signalingUrl, reconnectAttempt]);
 
   return (
     <div className="player-card" ref={containerRef}>
