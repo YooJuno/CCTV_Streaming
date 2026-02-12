@@ -4,14 +4,14 @@
 
 ## 프로젝트 위치
 
-- `platformio-esp32cam-mjpeg/`
+- `apps/cctv/device/`
 
 ## PlatformIO (VS Code) 업로드 요약
 
 1) VS Code 설치
 2) PlatformIO IDE 확장 설치
-3) 폴더 열기: `apps/cctv/device/platformio-esp32cam-mjpeg`
-4) `src/main.cpp`에서 Wi‑Fi 정보 수정
+3) 폴더 열기: `apps/cctv/device`
+4) `main.cpp`에서 Wi‑Fi 정보 수정
 
 ```cpp
 const char *WIFI_SSID = "YOUR_WIFI_SSID";
