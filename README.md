@@ -1,13 +1,13 @@
 ﻿# CCTV_Streaming
 
-PoC for real-time CCTV streaming with a Python WebRTC gateway, Spring Boot signaling, and a React player.
+PoC for real-time CCTV streaming with a Python WebRTC relay (test app), Spring Boot signaling, and a React player.
 
 ## Architecture
 
 WebRTC (default):
 
 ```
-RTSP/MJPEG/Local File -> Python Gateway (aiortc) -> Spring Boot (signaling) -> React WebRTC Player
+RTSP/MJPEG/Local File -> Python Relay (aiortc) -> Spring Boot (signaling) -> React WebRTC Player
 ```
 
 Optional HLS:
@@ -24,16 +24,16 @@ RTSP -> ffmpeg (HLS) -> Spring Boot (static /hls) -> React HLS Player
 apps/back-end/run.sh
 ```
 
-2) Start gateway
+2) Start test relay
 
 ```bash
-cd apps/esp32cam
+cd apps/cctv/test
 python -m venv venv
 venv\Scripts\activate  # Windows
 # or: source venv/bin/activate  # macOS/Linux
 pip install --upgrade pip setuptools wheel cython
 pip install -r requirements.txt
-python gateway.py
+python webrtc_relay.py
 ```
 
 3) Start front-end
@@ -71,21 +71,21 @@ http://localhost:8080/hls/mystream.m3u8
 
 ## ESP32-CAM
 
-Firmware sketch:
+Firmware project (PlatformIO):
 
-- `apps/esp32cam/firmware/esp32cam_mjpeg/esp32cam_mjpeg.ino`
+- `apps/cctv/device/platformio-esp32cam-mjpeg`
 
-After flashing, configure the gateway to read the MJPEG stream:
+After flashing, configure the test relay to read the MJPEG stream:
 
 ```bash
 export SOURCE_MODE=mjpeg
 export MJPEG_URL=http://<device-ip>:81/stream
-python apps/esp32cam/gateway.py
+python apps/cctv/test/webrtc_relay.py
 ```
 
 ## Environment Variables
 
-### Gateway (`apps/esp32cam/gateway.py`)
+### Test Relay (`apps/cctv/test/webrtc_relay.py`)
 
 - `SIGNAL_URL`: signaling server WebSocket URL (`ws://localhost:8080/signal`)
 - `SOURCE_MODE`: `auto|rtsp|mjpeg|file` (default `auto`)
@@ -116,7 +116,9 @@ python apps/esp32cam/gateway.py
 ```
 apps/
   back-end/     # Spring Boot (signaling + HLS static)
-  esp32cam/     # Python gateway + ESP32-CAM firmware
+  cctv/
+    device/     # ESP32-CAM firmware (PlatformIO)
+    test/       # Python WebRTC relay (local/MJPEG/RTSP test)
   front-end/    # React player
 scripts/
   rtsp_to_hls.sh

@@ -1,7 +1,4 @@
-﻿// ESP32-CAM MJPEG streaming server (AI Thinker)
-// Streams MJPEG on http://<device-ip>:81/stream
-// Simple status page on http://<device-ip>/
-
+﻿#include <Arduino.h>
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_http_server.h"
@@ -45,7 +42,7 @@ static const char *INDEX_HTML =
     "<p>Stream URL: <code>http://DEVICE_IP:81/stream</code></p>"
     "<img id='stream' alt='stream'>"
     "<script>const host=location.hostname;"
-    "document.getElementById('stream').src=`http://${host}:81/stream`;" 
+    "document.getElementById('stream').src=`http://${host}:81/stream`;"
     "</script></body></html>";
 
 httpd_handle_t index_httpd = NULL;
