@@ -66,10 +66,10 @@ RTSP_URL=rtsp://<rtsp-server>:8554/mystream scripts/rtsp_to_hls.sh
 
 `apps/cctv/device/pc_rtsp_publisher.py` provides a PC-side test source that loops `docs/video.mp4` forever and publishes to RTSP.
 
-PowerShell example:
+Linux example:
 
-```powershell
-python .\apps\cctv\device\pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
+```bash
+python apps/cctv/device/pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
 ```
 
 Options:

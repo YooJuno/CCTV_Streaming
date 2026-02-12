@@ -1,102 +1,129 @@
 # CCTV_Streaming
 
-RTSP to HLS CCTV streaming PoC.
+RTSP ?? ??? HLS? ??? ? ?????? ???? CCTV ???? ???????.
 
-## Architecture
+?? ??? WebRTC ?? ?? ??? ?????.
 
 ```text
-RTSP Camera -> ffmpeg (HLS) -> Spring Boot (/hls static) -> React (hls.js)
+RTSP ?? -> ffmpeg(HLS ??) -> Spring Boot(/hls ?? ??) -> React(hls.js)
 ```
 
-## Components
+## ???? ??
 
-- `apps/back-end`: Spring Boot API + HLS static file serving
-- `apps/front-end`: React player using `hls.js`
-- `scripts/rtsp_to_hls.sh`: RTSP to HLS conversion
-- `scripts/publish_rtsp.sh`: local RTSP source publisher (optional)
-- `scripts/rtsp_to_hls.ps1`: Windows PowerShell RTSP to HLS conversion
-- `scripts/publish_rtsp.ps1`: Windows PowerShell local RTSP source publisher
-- `apps/cctv/device/pc_rtsp_publisher.py`: PC RTSP publisher using local video
+- `apps/back-end`: Spring Boot ?? (`/health`, `/hls/**`)
+- `apps/front-end`: React + Vite HLS ????
+- `apps/cctv/device`: ESP32-CAM(MJPEG HTTP ??) + PC RTSP ??? ????
+- `scripts/rtsp_to_hls.sh`: RTSP -> HLS ??
+- `scripts/publish_rtsp.sh`: ?? ?? -> RTSP ??
 
-## Quick Start (HLS only)
+## ????
 
-Prerequisites:
-
+- Linux (Ubuntu ?)
 - Java 17+
 - Node.js 18+
-- `ffmpeg`
+- ffmpeg (PATH ??)
 
-1) Start back-end
+## ?? ?? (Linux)
+
+???? ???? ?????.
+
+1) ??? ??
 
 ```bash
-apps/back-end/run.sh
-```
-
-Windows (PowerShell):
-
-```powershell
 cd apps/back-end
-.\gradlew.bat bootRun
+./gradlew bootRun
 ```
 
-2) Convert RTSP to HLS
+2) ???? RTSP ?? (docs/video.mp4 ?? ??)
 
 ```bash
-# Example
-RTSP_URL=rtsp://<camera-host>/stream1 STREAM_ID=mystream scripts/rtsp_to_hls.sh
+cd ../..
+./scripts/publish_rtsp.sh
 ```
 
-If you need a local RTSP source for testing:
+3) RTSP? HLS? ??
 
 ```bash
-python apps/cctv/device/pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
+./scripts/rtsp_to_hls.sh
 ```
 
-Windows users can use PowerShell scripts:
-
-```powershell
-.\scripts\publish_rtsp.ps1 -RtspUrl rtsp://localhost:8554/mystream
-.\scripts\rtsp_to_hls.ps1 -RtspUrl rtsp://localhost:8554/mystream -StreamId mystream
-```
-
-3) Start front-end
+4) ??? ??
 
 ```bash
 npm --prefix apps/front-end install
 npm --prefix apps/front-end run dev
 ```
 
-4) Open player
+5) ??
 
-- Front-end: `http://localhost:5173`
-- HLS manifest example: `http://localhost:8080/hls/mystream.m3u8`
+- ????: `http://localhost:5173`
+- HLS ?????: `http://localhost:8080/hls/mystream.m3u8`
+- ????: `http://localhost:8080/health`
 
-## RTSP to HLS script variables
+## ??? ??(PC) ??
 
-- `RTSP_URL`: input RTSP URL
-- `STREAM_ID`: output stream id (`<streamId>.m3u8`)
-- `HLS_DIR`: output directory (default `apps/back-end/hls`)
-- `HLS_TIME`: segment duration seconds (default `2`)
-- `HLS_LIST_SIZE`: manifest window size (default `10`)
-- `HLS_DELETE`: delete old segments (`true|false`)
-- `RTSP_TRANSPORT`: `tcp|udp` (default `tcp`)
-- `TRANSCODE`: force H.264/AAC transcoding (`true|false`, default `false`)
-- `VIDEO_CODEC`: ffmpeg video codec when transcoding (default `libx264`)
-- `AUDIO_CODEC`: ffmpeg audio codec when transcoding (default `aac`)
+### Python ????
 
-Front-end options:
+`apps/cctv/device/pc_rtsp_publisher.py`? `docs/video.mp4`? ?? ??? RTSP? ?????.
 
-- `VITE_HLS_BASE_URL`: base URL for manifests
-- `VITE_HLS_URL`: full manifest URL override
-- `VITE_STREAM_ID`: default stream id shown in UI
+```bash
+python apps/cctv/device/pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
+```
 
-Back-end options:
+??:
+- `--video`: ?? ?? ?? ?? (??: `docs/video.mp4`)
+- `--rtsp-url`: ?? RTSP URL
+- `--transport`: `tcp` ?? `udp` (?? `tcp`)
+- `--transcode`: ?? H.264/AAC ???
 
-- `hls.path`: directory served as `/hls/**`
-- `hls.allowed-origins`: comma-separated CORS origins for HLS resources
+### Bash ????
 
-## Notes for ESP32-CAM
+- `scripts/publish_rtsp.sh`
+  - `VIDEO_FILE`, `RTSP_URL`, `RTSP_TRANSPORT`, `TRANSCODE`
 
-Current firmware in `apps/cctv/device` outputs MJPEG over HTTP (`http://<device-ip>:81/stream`), not RTSP.
+- `scripts/rtsp_to_hls.sh`
+  - `RTSP_URL`, `STREAM_ID`, `HLS_DIR`, `HLS_TIME`, `HLS_LIST_SIZE`, `HLS_DELETE`, `RTSP_TRANSPORT`, `TRANSCODE`
 
-If you must keep RTSP-first architecture, put a small media gateway in front of ESP32 to republish as RTSP, then run `scripts/rtsp_to_hls.sh`.
+## ?? ???
+
+### ??? (`apps/back-end/src/main/resources/application.properties`)
+
+- `hls.path`: `/hls/**`? ??? ?? ????
+- `hls.allowed-origins`: HLS ??? CORS ?? Origin
+
+???:
+
+- `hls.path=./hls`
+- `hls.allowed-origins=http://localhost:5173`
+
+### ???
+
+- `VITE_HLS_BASE_URL`: ?? HLS ??? URL
+- `VITE_HLS_URL`: ?? ????? URL ?? ??
+- `VITE_STREAM_ID`: ?? Stream ID
+
+## ESP32-CAM ?? ??
+
+`apps/cctv/device/main.cpp` ???? RTSP? ??? MJPEG HTTP? ?????.
+
+- ?? ???: `http://<device-ip>/`
+- MJPEG ???: `http://<device-ip>:81/stream`
+
+RTSP ?????? ???? MJPEG -> RTSP ???? ??? ?????.
+
+??:
+
+```bash
+ffmpeg -f mjpeg -i http://<device-ip>:81/stream -c:v libx264 -f rtsp rtsp://<rtsp-server>:8554/mystream
+```
+
+? ?? `scripts/rtsp_to_hls.sh`? ???? ???.
+
+## ?????
+
+- `ffmpeg command not found in PATH`
+  - ffmpeg ?? ? PATH ?? ??
+
+- ?????? HLS ?? ??
+  - `http://localhost:8080/hls/<streamId>.m3u8` ?? ???? ??
+  - `hls.allowed-origins`? ??? ?? ?? ?? ??
