@@ -4,6 +4,7 @@ export default function HlsPlayer({ streamId = "mystream" }) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
   const [status, setStatus] = useState("idle");
+  const [manifestUrl, setManifestUrl] = useState("");
 
   useEffect(() => {
     const video = videoRef.current;
@@ -11,22 +12,38 @@ export default function HlsPlayer({ streamId = "mystream" }) {
     let disposed = false;
 
     const baseUrl = import.meta.env.VITE_HLS_BASE_URL || "http://localhost:8080/hls";
-    const url = import.meta.env.VITE_HLS_URL || `${baseUrl}/${streamId}.m3u8`;
+    const safeStreamId = encodeURIComponent(String(streamId).trim() || "mystream");
+    const url = import.meta.env.VITE_HLS_URL || `${baseUrl}/${safeStreamId}.m3u8`;
+    setManifestUrl(url);
 
     setStatus("loading");
 
-    const cleanupVideo = () => {
+    const cleanupVideoElement = () => {
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("error", onVideoError);
       video.pause();
       video.removeAttribute("src");
       video.load();
     };
 
+    const onPlaying = () => setStatus("playing");
+    const onWaiting = () => setStatus("buffering");
+    const onVideoError = () => setStatus("video error");
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("waiting", onWaiting);
+    video.addEventListener("error", onVideoError);
+
+    const tryAutoplay = () => {
+      video.play().then(() => setStatus("playing")).catch(() => setStatus("ready"));
+    };
+
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
-      video.play().then(() => setStatus("playing")).catch(() => setStatus("loaded"));
+      tryAutoplay();
       return () => {
         disposed = true;
-        cleanupVideo();
+        cleanupVideoElement();
       };
     }
 
@@ -49,11 +66,27 @@ export default function HlsPlayer({ streamId = "mystream" }) {
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().then(() => setStatus("playing")).catch(() => setStatus("loaded"));
+          setStatus("ready");
+          tryAutoplay();
         });
 
-        hls.on(Hls.Events.ERROR, () => {
-          setStatus("error");
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data || !data.fatal) {
+            return;
+          }
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            setStatus("network retry");
+            hls.startLoad();
+            return;
+          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            setStatus("media recovery");
+            hls.recoverMediaError();
+            return;
+          }
+          setStatus("fatal error");
+          hls.destroy();
+          hlsRef.current = null;
         });
       } catch (error) {
         if (!disposed) {
@@ -68,14 +101,17 @@ export default function HlsPlayer({ streamId = "mystream" }) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
-      cleanupVideo();
+      cleanupVideoElement();
     };
   }, [streamId]);
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto" }}>
-      <video ref={videoRef} controls playsInline style={{ width: "100%", background: "#000" }} />
-      <div style={{ textAlign: "center", marginTop: 8, color: "#6b7280" }}>{status}</div>
+    <div className="hls-panel">
+      <video ref={videoRef} className="hls-video" controls playsInline crossOrigin="anonymous" />
+      <div className="hls-info">
+        <span className="hls-status">Status: {status}</span>
+        <span className="hls-url">{manifestUrl}</span>
+      </div>
     </div>
   );
 }
