@@ -1,12 +1,21 @@
-﻿#include <Arduino.h>
+#include <Arduino.h>
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_http_server.h"
 #include "img_converters.h"
 #include <cstring>
 
-const char *WIFI_SSID = "YOUR_WIFI_SSID";
-const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+#ifndef WIFI_SSID
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#endif
+
+const char *WIFI_SSID_VALUE = WIFI_SSID;
+const char *WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
+static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
+static const uint32_t WIFI_RETRY_DELAY_MS = 3000;
 
 // AI Thinker pin map
 #define PWDN_GPIO_NUM     32
@@ -48,39 +57,69 @@ static const char *INDEX_HTML =
 httpd_handle_t index_httpd = NULL;
 httpd_handle_t stream_httpd = NULL;
 
+static void logWiFiConfigWarning() {
+  if (strcmp(WIFI_SSID_VALUE, "YOUR_WIFI_SSID") == 0) {
+    Serial.println("[WARN] WIFI_SSID is still the default placeholder.");
+  }
+}
+
+static bool connectWiFi(uint32_t timeoutMs) {
+  WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
+
+  uint32_t startMs = millis();
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < timeoutMs) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  return WiFi.status() == WL_CONNECTED;
+}
+
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
   return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t stream_handler(httpd_req_t *req) {
-  esp_err_t res = ESP_OK;
-  camera_fb_t *fb = NULL;
-  size_t jpg_buf_len = 0;
-  uint8_t *jpg_buf = NULL;
-  char part_buf[64];
-
-  res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
+  esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
   if (res != ESP_OK) {
     return res;
   }
 
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+
   while (true) {
-    fb = esp_camera_fb_get();
+    res = ESP_OK;
+    camera_fb_t *fb = esp_camera_fb_get();
+    size_t jpg_buf_len = 0;
+    uint8_t *jpg_buf = NULL;
+    char part_buf[64];
+
     if (!fb) {
-      res = ESP_FAIL;
-    } else {
-      if (fb->format != PIXFORMAT_JPEG) {
-        bool converted = frame2jpg(fb, 80, &jpg_buf, &jpg_buf_len);
-        esp_camera_fb_return(fb);
-        fb = NULL;
-        if (!converted) {
-          res = ESP_FAIL;
+      Serial.println("[WARN] Camera capture failed, retrying");
+      delay(10);
+      continue;
+    }
+
+    if (fb->format != PIXFORMAT_JPEG) {
+      bool converted = frame2jpg(fb, 80, &jpg_buf, &jpg_buf_len);
+      esp_camera_fb_return(fb);
+      fb = NULL;
+      if (!converted) {
+        Serial.println("[WARN] JPEG conversion failed, retrying");
+        if (jpg_buf) {
+          free(jpg_buf);
+          jpg_buf = NULL;
         }
-      } else {
-        jpg_buf_len = fb->len;
-        jpg_buf = fb->buf;
+        delay(10);
+        continue;
       }
+    } else {
+      jpg_buf_len = fb->len;
+      jpg_buf = fb->buf;
     }
 
     if (res == ESP_OK) {
@@ -104,6 +143,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     }
 
     if (res != ESP_OK) {
+      Serial.println("[INFO] Stream client disconnected");
       break;
     }
   }
@@ -121,8 +161,11 @@ void startCameraServer() {
       .handler = index_handler,
       .user_ctx = NULL};
 
-  if (httpd_start(&index_httpd, &config) == ESP_OK) {
+  esp_err_t indexResult = httpd_start(&index_httpd, &config);
+  if (indexResult == ESP_OK) {
     httpd_register_uri_handler(index_httpd, &index_uri);
+  } else {
+    Serial.printf("Failed to start index server: 0x%x\n", indexResult);
   }
 
   httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();
@@ -135,8 +178,11 @@ void startCameraServer() {
       .handler = stream_handler,
       .user_ctx = NULL};
 
-  if (httpd_start(&stream_httpd, &stream_config) == ESP_OK) {
+  esp_err_t streamResult = httpd_start(&stream_httpd, &stream_config);
+  if (streamResult == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
+  } else {
+    Serial.printf("Failed to start stream server: 0x%x\n", streamResult);
   }
 }
 
@@ -179,22 +225,24 @@ void setup() {
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x\n", err);
+    delay(WIFI_RETRY_DELAY_MS);
+    ESP.restart();
     return;
   }
 
   pinMode(LED_GPIO_NUM, OUTPUT);
   digitalWrite(LED_GPIO_NUM, LOW);
 
+  logWiFiConfigWarning();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  if (!connectWiFi(WIFI_CONNECT_TIMEOUT_MS)) {
+    Serial.println("WiFi connection timeout. Restarting...");
+    delay(WIFI_RETRY_DELAY_MS);
+    ESP.restart();
+    return;
   }
-  Serial.println();
 
   Serial.print("WiFi connected. IP address: ");
   Serial.println(WiFi.localIP());
