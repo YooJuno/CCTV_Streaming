@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Simple media gateway using aiortc that registers with Spring signaling and answers WebRTC watchers.
-It reads from RTSP or MJPEG sources and can fall back to a local video file when configured.
+Simple media relay using aiortc that registers with Spring signaling and answers WebRTC watchers.
+It reads from RTSP/MJPEG sources and can also use a local file when no embedded device is available.
 
 Requirements:
   pip install -r requirements.txt
   brew install ffmpeg
 
 Run:
-  python3 gateway.py
+  python3 webrtc_relay.py
 """
 
 import asyncio
@@ -32,13 +32,12 @@ import websockets
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
-logger = logging.getLogger("gateway")
+logger = logging.getLogger("relay")
 
 SIGNAL_URL = os.environ.get("SIGNAL_URL", "ws://localhost:8080/signal")
 RTSP_URL = os.environ.get("RTSP_URL", "rtsp://localhost:8554/mystream")
 MJPEG_URL = os.environ.get("MJPEG_URL", "")
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-LOCAL_FILE = os.environ.get("LOCAL_FILE", os.path.join(ROOT_DIR, "docs", "video.mp4"))
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ICE_SERVERS_ENV = os.environ.get("ICE_SERVERS", "")
 RTSP_OPTIONS_ENV = os.environ.get("RTSP_OPTIONS", "")
 MJPEG_OPTIONS_ENV = os.environ.get("MJPEG_OPTIONS", "")
@@ -48,12 +47,21 @@ SOURCE_MODE = os.environ.get("SOURCE_MODE", "auto").lower()  # auto | rtsp | mjp
 STATS_INTERVAL = float(os.environ.get("STATS_INTERVAL", "0"))
 STREAMS_JSON = os.environ.get("STREAMS_JSON", "")
 
+
+def resolve_path_from_root(path_value):
+    if not path_value:
+        return path_value
+    if os.path.isabs(path_value):
+        return path_value
+    return os.path.join(ROOT_DIR, path_value)
+
+
+LOCAL_FILE = resolve_path_from_root(os.environ.get("LOCAL_FILE", os.path.join(ROOT_DIR, "docs", "video.mp4")))
+
 pcs = {}
 # track periodic stats logging tasks per client session
 stats_tasks = {}
 relay = MediaRelay() if MediaRelay else None
-media_lock = asyncio.Lock()
-media_source = None
 stream_sources = {}
 stream_locks = {}
 
@@ -84,7 +92,7 @@ def load_stream_configs():
                 "mode": (item.get("mode") or SOURCE_MODE).lower(),
                 "rtsp": item.get("rtsp") or RTSP_URL,
                 "mjpeg": item.get("mjpeg") or MJPEG_URL,
-                "file": item.get("file") or LOCAL_FILE,
+                "file": resolve_path_from_root(item.get("file") or LOCAL_FILE),
                 "loop": bool(item.get("loop", LOOP_FILE)),
             }
         return configs
@@ -200,7 +208,6 @@ def source_ended(source):
 
 
 async def get_media_source(stream_id):
-    global media_source
     if MediaPlayer is None:
         logger.error("MediaPlayer is not available in aiortc installation")
         return None
@@ -231,13 +238,15 @@ async def get_media_source(stream_id):
         file_path = cfg.get("file", LOCAL_FILE)
         loop_file = bool(cfg.get("loop", LOOP_FILE))
 
+        source = None
+
         if source_mode in ("auto", "rtsp"):
             try:
                 logger.info("Trying RTSP source %s for %s", rtsp_url, stream_id)
-                media_source = MediaPlayer(rtsp_url, format="rtsp", options=RTSP_OPTIONS)
-                if getattr(media_source, "video", None) or getattr(media_source, "audio", None):
-                    stream_sources[stream_id] = media_source
-                    return media_source
+                source = MediaPlayer(rtsp_url, format="rtsp", options=RTSP_OPTIONS)
+                if getattr(source, "video", None) or getattr(source, "audio", None):
+                    stream_sources[stream_id] = source
+                    return source
             except Exception as e:
                 logger.warning("RTSP open failed: %s", e)
 
@@ -247,10 +256,10 @@ async def get_media_source(stream_id):
             else:
                 try:
                     logger.info("Trying MJPEG source %s for %s", mjpeg_url, stream_id)
-                    media_source = build_mjpeg_player(mjpeg_url)
-                    if getattr(media_source, "video", None) or getattr(media_source, "audio", None):
-                        stream_sources[stream_id] = media_source
-                        return media_source
+                    source = build_mjpeg_player(mjpeg_url)
+                    if getattr(source, "video", None) or getattr(source, "audio", None):
+                        stream_sources[stream_id] = source
+                        return source
                 except Exception as e:
                     logger.warning("MJPEG open failed: %s", e)
 
@@ -258,15 +267,15 @@ async def get_media_source(stream_id):
             if os.path.exists(file_path):
                 logger.info("Using local file %s for %s", file_path, stream_id)
                 try:
-                    media_source = build_file_player(file_path, loop_file)
+                    source = build_file_player(file_path, loop_file)
                 except Exception as e:
                     logger.error("Failed to open local file %s: %s", file_path, e)
             else:
                 logger.error("Local file not found: %s", file_path)
 
-        if media_source:
-            stream_sources[stream_id] = media_source
-        return media_source
+        if source:
+            stream_sources[stream_id] = source
+        return source
 
 
 def build_pc():
@@ -304,7 +313,7 @@ async def run():
         async with websockets.connect(SIGNAL_URL) as ws:
             logger.info("Connected to signaling %s", SIGNAL_URL)
 
-            # register as gateway
+            # signaling protocol expects role="gateway"
             await ws.send(json.dumps({"type": "register", "role": "gateway", "streams": list(STREAM_CONFIGS.keys())}))
 
             gateway_session_id = None
@@ -315,7 +324,7 @@ async def run():
 
                 if typ == "registered":
                     gateway_session_id = data.get("gatewaySessionId")
-                    logger.info("Registered as gateway (id=%s)", gateway_session_id)
+                    logger.info("Registered as relay (role=gateway, id=%s)", gateway_session_id)
 
                 elif typ == "watch":
                     client_session_id = data.get("clientSessionId")
@@ -392,7 +401,7 @@ async def run():
 
                     @pc.on("icecandidate")
                     async def on_icecandidate(candidate):
-                        logger.debug("Gateway ICE candidate event: %s", candidate)
+                        logger.debug("Relay ICE candidate event: %s", candidate)
                         if candidate is not None:
                             cand = {
                                 "candidate": candidate.candidate,
