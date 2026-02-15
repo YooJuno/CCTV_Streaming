@@ -6,10 +6,10 @@
 #include <cstring>
 
 #ifndef WIFI_SSID
-#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_SSID "JUNO_HOME_2.4G"
 #endif
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define WIFI_PASSWORD "juno980220@"
 #endif
 
 const char *WIFI_SSID_VALUE = WIFI_SSID;
@@ -66,8 +66,9 @@ static void logWiFiConfigWarning() {
 static bool connectWiFi(uint32_t timeoutMs) {
   WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
 
+
   uint32_t startMs = millis();
-  Serial.print("Connecting to WiFi");
+  Serial.print("Connecting to JUNO WiFi");
   while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < timeoutMs) {
     delay(500);
     Serial.print(".");
@@ -244,10 +245,15 @@ void setup() {
     return;
   }
 
+  IPAddress ip = WiFi.localIP();
   Serial.print("WiFi connected. IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println("Open http://<device-ip>/ for status page.");
-  Serial.println("MJPEG stream: http://<device-ip>:81/stream");
+  Serial.println(ip);
+  Serial.print("Open http://");
+  Serial.print(ip);
+  Serial.println("/ for status page.");
+  Serial.print("MJPEG stream: http://");
+  Serial.print(ip);
+  Serial.println(":81/stream");
 
   startCameraServer();
 }

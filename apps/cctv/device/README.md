@@ -1,80 +1,47 @@
 # ESP32-CAM firmware (PlatformIO)
 
-This folder contains a PlatformIO project that streams MJPEG over HTTP from ESP32-CAM.
+이 폴더는 ESP32-CAM이 MJPEG HTTP 스트림을 출력하도록 하는 펌웨어입니다.
 
-## Project path
+## 경로
 
-- `apps/cctv/device/`
+- `apps/cctv/device`
 
-## PlatformIO upload summary
-
-1) Install VS Code
-2) Install PlatformIO IDE extension
-3) Open folder: `apps/cctv/device`
-4) Configure Wi-Fi (choose one)
-
-- Option A: set build flags in `platformio.ini` (recommended)
-- Option B: keep defaults in `main.cpp` and replace placeholder macros
-
-```cpp
-#ifndef WIFI_SSID
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#endif
-#ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#endif
-```
-
-5) Enter upload mode
-
-- Connect `IO0` to `GND`
-- Press `RST`
-
-6) Upload from PlatformIO (`Ctrl+Alt+U`)
-
-7) After upload
-
-- Disconnect `IO0` from `GND`
-- Press `RST` again
-
-8) Serial monitor at `115200`
-
-## URLs
-
-- Status page: `http://<device-ip>/`
-- MJPEG stream: `http://<device-ip>:81/stream`
-
-## Integration with this repo
-
-The current app path is RTSP -> HLS.
-
-This firmware outputs MJPEG, so you need a gateway step before HLS generation.
-
-Example gateway command:
+## 빌드
 
 ```bash
-ffmpeg -f mjpeg -i http://<device-ip>:81/stream -c:v libx264 -f rtsp rtsp://<rtsp-server>:8554/mystream
+cd apps/cctv/device
+~/.platformio/penv/bin/pio run -e esp32cam
 ```
 
-Then run:
+## 업로드
+
+PlatformIO 업로드가 `tool-mkspiffs`에서 멈추면 직접 플래시를 권장합니다.
 
 ```bash
-RTSP_URL=rtsp://<rtsp-server>:8554/mystream scripts/rtsp_to_hls.sh
+~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  --chip esp32 --port /dev/cu.usbserial-1130 --baud 115200 \
+  --before default_reset --after hard_reset write_flash -z \
+  --flash_mode dio --flash_freq 40m --flash_size detect \
+  0x1000 .pio/build/esp32cam/bootloader.bin \
+  0x8000 .pio/build/esp32cam/partitions.bin \
+  0x10000 .pio/build/esp32cam/firmware.bin
 ```
 
-## PC test publisher (local file -> RTSP)
-
-`apps/cctv/device/pc_rtsp_publisher.py` provides a PC-side test source that loops `docs/video.mp4` forever and publishes to RTSP.
-
-Linux example:
+## 시리얼 모니터
 
 ```bash
-python apps/cctv/device/pc_rtsp_publisher.py --rtsp-url rtsp://localhost:8554/mystream
+~/.platformio/penv/bin/pio device monitor -b 115200 --port /dev/cu.usbserial-1130
 ```
 
-Options:
+## 출력 URL
 
-- `--video`: input file path (default: `<repo>/docs/video.mp4`)
-- `--rtsp-url`: target RTSP URL
-- `--transport`: `tcp` or `udp` (default: `tcp`)
-- `--transcode`: force H.264/AAC encoding instead of stream copy
+- 상태 페이지: `http://<device-ip>/`
+- MJPEG 스트림: `http://<device-ip>:81/stream`
+
+## 프로젝트 연동
+
+프로젝트 루트에서 MJPEG를 HLS로 변환합니다.
+
+```bash
+MJPEG_URL=http://<device-ip>:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls.sh
+```
