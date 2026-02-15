@@ -5,6 +5,7 @@ import StreamCard from "./components/StreamCard";
 import type { AuthSession, StreamInfo } from "./types";
 
 const AUTH_STORAGE_KEY = "cctv_auth_session_v1";
+const HTTP_UNAUTHORIZED_PREFIX = "HTTP 401";
 
 function loadStoredSession(): AuthSession | null {
   try {
@@ -30,6 +31,10 @@ function saveSession(session: AuthSession | null) {
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
 }
 
+function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(HTTP_UNAUTHORIZED_PREFIX);
+}
+
 export default function App() {
   const [session, setSession] = useState<AuthSession | null>(() => loadStoredSession());
   const [streams, setStreams] = useState<StreamInfo[]>([]);
@@ -40,10 +45,18 @@ export default function App() {
 
   const subtitle = useMemo(() => {
     if (!session) {
-      return "RTSP to HLS dashboard. Sign in to load your streams.";
+      return "MJPEG to HLS dashboard. Sign in to load your streams.";
     }
     return `Signed in as ${session.displayName}`;
   }, [session]);
+
+  function expireSession() {
+    setSession(null);
+    setStreams([]);
+    setStreamsError(null);
+    setAuthError("Session expired. Please sign in again.");
+    saveSession(null);
+  }
 
   useEffect(() => {
     if (!session) {
@@ -63,6 +76,10 @@ export default function App() {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
+          if (isUnauthorizedError(error)) {
+            expireSession();
+            return;
+          }
           const message = error instanceof Error ? error.message : "Failed to load streams.";
           setStreamsError(message);
         }
@@ -88,6 +105,7 @@ export default function App() {
         username: result.username,
         displayName: result.displayName,
       };
+      setStreamsError(null);
       setSession(nextSession);
       setStreams(result.streams ?? []);
       saveSession(nextSession);
@@ -117,6 +135,10 @@ export default function App() {
       const response = await fetchStreams(session.token);
       setStreams(response.streams);
     } catch (error: unknown) {
+      if (isUnauthorizedError(error)) {
+        expireSession();
+        return;
+      }
       const message = error instanceof Error ? error.message : "Failed to refresh streams.";
       setStreamsError(message);
     } finally {
@@ -151,7 +173,7 @@ export default function App() {
 
           {loadingStreams ? <p className="loading-text">Loading streams...</p> : null}
 
-          {!loadingStreams && streams.length === 0 ? (
+          {!loadingStreams && !streamsError && streams.length === 0 ? (
             <div className="empty-state">No streams available for this account.</div>
           ) : null}
 
