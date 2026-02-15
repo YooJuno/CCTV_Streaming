@@ -1,88 +1,72 @@
-# macOS
+# OS
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# Thumbnails
 ._*
+Thumbs.db
 
-# Node
-node_modules/
-/apps/front-end/node_modules/
-/apps/front-end/dist/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Vite / build outputs
-apps/front-end/dist/
-apps/front-end/.vite/
+# Editors
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+*.swp
+*~
+*.tmp
 
 # Logs
 logs/
 *.log
 *.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Environment
 .env
 .env.*
 .env.local
+.python-version
+
+# Node / Front-end
+node_modules/
+apps/front-end/node_modules/
+apps/front-end/dist/
+apps/front-end/.vite/
+coverage/
 
 # Java / Gradle
 .gradle/
 build/
-apps/back-end/build/
 apps/back-end/.gradle/
+apps/back-end/build/
 *.class
 *.jar
 *.war
 *.ear
 
-# IntelliJ / IDE
-.idea/
-*.iml
-*.iws
-*.ipr
-
-# VS Code
-.vscode/
-
 # Python
 venv/
-venv/
+/venv/
 .env/
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-.python-version
-pip-log.txt
-pip-delete-this-directory.txt
+.pytest_cache/
+htmlcov/
 
-# aiortc / media
+# Media scratch
 *.pcm
 *.yuv
 *.h264
 
-# rtsp-simple-server artifacts (if any)
+# Legacy artifacts
 rtsp-simple-server/
 
-# Misc
-*.swp
-*~
-*.tmp
-
-# Coverage / test
-coverage/
-htmlcov/
-.pytest_cache/
-
-# OS generated files
-Thumbs.db
-
-# Ensure we don't ignore project files that should be committed
+# Keep repository ignore config tracked
 !/.gitignore
-
-
-/venv
