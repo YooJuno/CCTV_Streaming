@@ -19,9 +19,15 @@ VIDEO_PRESET="${VIDEO_PRESET:-veryfast}"
 VIDEO_TUNE="${VIDEO_TUNE:-zerolatency}"
 PIX_FMT="${PIX_FMT:-yuv420p}"
 RETRY_DELAY_SECONDS="${RETRY_DELAY_SECONDS:-1}"
+MAX_RETRY_DELAY_SECONDS="${MAX_RETRY_DELAY_SECONDS:-15}"
 STALL_TIMEOUT_SECONDS="${STALL_TIMEOUT_SECONDS:-20}"
 FFMPEG_BIN="${FFMPEG_BIN:-}"
 LOCAL_FFMPEG="$ROOT_DIR/tools/ffmpeg/ffmpeg"
+LOCK_DIR="${LOCK_DIR:-/tmp/cctv_streaming_locks}"
+
+log() {
+  printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
 
 if [ -z "$FFMPEG_BIN" ]; then
   if [ -x "$LOCAL_FFMPEG" ]; then
@@ -44,13 +50,26 @@ elif ! command -v "$FFMPEG_BIN" >/dev/null 2>&1; then
 fi
 
 if [[ "$MJPEG_URL" == *"YOUR_DEVICE_IP"* ]] || [[ "$MJPEG_URL" == *"<device-ip>"* ]]; then
-  echo "MJPEG_URL is not configured."
-  echo "Example:"
-  echo "  MJPEG_URL=http://192.168.0.42:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls.sh"
+  log "MJPEG_URL is not configured."
+  log "Example:"
+  log "  MJPEG_URL=http://192.168.0.42:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls.sh"
   exit 1
 fi
 
 mkdir -p "$HLS_DIR"
+
+if command -v flock >/dev/null 2>&1; then
+  mkdir -p "$LOCK_DIR"
+  LOCK_NAME="$(echo "$STREAM_ID" | tr -c 'A-Za-z0-9._-' '_')"
+  LOCK_FILE="$LOCK_DIR/${LOCK_NAME}.lock"
+  exec {LOCK_FD}> "$LOCK_FILE"
+  if ! flock -n "$LOCK_FD"; then
+    log "Another converter is already running for STREAM_ID=$STREAM_ID (lock: $LOCK_FILE)"
+    exit 1
+  fi
+else
+  log "Warning: 'flock' not found. Duplicate STREAM_ID processes are not guarded."
+fi
 
 HLS_FLAGS="append_list+program_date_time+independent_segments+omit_endlist"
 if [ "$HLS_DELETE" = "true" ]; then
@@ -59,25 +78,27 @@ fi
 
 find "$HLS_DIR" -maxdepth 1 -type f \( -name "${STREAM_ID}.m3u8" -o -name "${STREAM_ID}_*.ts" \) -delete
 
-echo "MJPEG_URL=$MJPEG_URL"
-echo "STREAM_ID=$STREAM_ID"
-echo "HLS_DIR=$HLS_DIR"
-echo "FRAMERATE=$FRAMERATE"
-echo "KEYINT=$KEYINT"
-echo "HLS_TIME=$HLS_TIME"
-echo "HLS_LIST_SIZE=$HLS_LIST_SIZE"
-echo "HLS_DELETE=$HLS_DELETE"
-echo "VIDEO_CODEC=$VIDEO_CODEC"
-echo "VIDEO_PRESET=$VIDEO_PRESET"
-echo "VIDEO_TUNE=$VIDEO_TUNE"
-echo "FFMPEG_BIN=$FFMPEG_BIN"
-echo "STALL_TIMEOUT_SECONDS=$STALL_TIMEOUT_SECONDS"
+log "MJPEG_URL=$MJPEG_URL"
+log "STREAM_ID=$STREAM_ID"
+log "HLS_DIR=$HLS_DIR"
+log "FRAMERATE=$FRAMERATE"
+log "KEYINT=$KEYINT"
+log "HLS_TIME=$HLS_TIME"
+log "HLS_LIST_SIZE=$HLS_LIST_SIZE"
+log "HLS_DELETE=$HLS_DELETE"
+log "VIDEO_CODEC=$VIDEO_CODEC"
+log "VIDEO_PRESET=$VIDEO_PRESET"
+log "VIDEO_TUNE=$VIDEO_TUNE"
+log "FFMPEG_BIN=$FFMPEG_BIN"
+log "STALL_TIMEOUT_SECONDS=$STALL_TIMEOUT_SECONDS"
+log "MAX_RETRY_DELAY_SECONDS=$MAX_RETRY_DELAY_SECONDS"
 
 stop_requested=0
 on_stop_signal() {
   stop_requested=1
 }
 trap on_stop_signal INT TERM
+consecutive_failures=0
 
 while true; do
   if [ "$stop_requested" -eq 1 ]; then
@@ -115,13 +136,13 @@ while true; do
         last_update_ts="$now_ts"
       fi
       if [ $((now_ts - last_update_ts)) -ge "$STALL_TIMEOUT_SECONDS" ]; then
-        echo "No HLS update for ${STALL_TIMEOUT_SECONDS}s. Restarting ffmpeg..."
+        log "No HLS update for ${STALL_TIMEOUT_SECONDS}s. Restarting ffmpeg..."
         kill "$ffmpeg_pid" 2>/dev/null || true
         restarted_for_stall=1
         break
       fi
     elif [ $((now_ts - start_ts)) -ge "$STALL_TIMEOUT_SECONDS" ]; then
-      echo "No HLS manifest created for ${STALL_TIMEOUT_SECONDS}s. Restarting ffmpeg..."
+      log "No HLS manifest created for ${STALL_TIMEOUT_SECONDS}s. Restarting ffmpeg..."
       kill "$ffmpeg_pid" 2>/dev/null || true
       restarted_for_stall=1
       break
@@ -146,18 +167,32 @@ while true; do
   if [ "$exit_code" -eq 255 ] && [ "$restarted_for_stall" -eq 0 ]; then
     break
   fi
-  if [ "$restarted_for_stall" -eq 1 ]; then
-    echo "ffmpeg was restarted after stream stall."
-  elif [ "$exit_code" -eq 0 ]; then
-    echo "ffmpeg exited cleanly. restarting in ${RETRY_DELAY_SECONDS}s..."
+  if [ "$restarted_for_stall" -eq 1 ] || [ "$exit_code" -ne 0 ]; then
+    consecutive_failures=$((consecutive_failures + 1))
   else
-    echo "ffmpeg exited with code ${exit_code}. restarting in ${RETRY_DELAY_SECONDS}s..."
+    consecutive_failures=0
+  fi
+
+  delay_seconds="$RETRY_DELAY_SECONDS"
+  if [ "$consecutive_failures" -gt 0 ]; then
+    delay_seconds=$((RETRY_DELAY_SECONDS * (consecutive_failures + 1)))
+    if [ "$delay_seconds" -gt "$MAX_RETRY_DELAY_SECONDS" ]; then
+      delay_seconds="$MAX_RETRY_DELAY_SECONDS"
+    fi
+  fi
+
+  if [ "$restarted_for_stall" -eq 1 ]; then
+    log "ffmpeg was restarted after stream stall."
+  elif [ "$exit_code" -eq 0 ]; then
+    log "ffmpeg exited cleanly. restarting in ${delay_seconds}s..."
+  else
+    log "ffmpeg exited with code ${exit_code}. restarting in ${delay_seconds}s..."
   fi
 
   if [ "$stop_requested" -eq 1 ]; then
     break
   fi
-  sleep "$RETRY_DELAY_SECONDS"
+  sleep "$delay_seconds"
 done
 
-echo "mjpeg_to_hls stopped."
+log "mjpeg_to_hls stopped."
