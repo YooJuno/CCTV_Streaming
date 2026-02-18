@@ -20,6 +20,7 @@ export default function LoginForm({ loading, errorMessage, onSubmit }: LoginForm
 
   return (
     <section className="auth-panel">
+      <p className="auth-kicker">SECURE ACCESS</p>
       <h2>Sign In</h2>
       <p className="auth-subtitle">Use a backend account to load authorized streams.</p>
 
@@ -53,6 +54,7 @@ export default function LoginForm({ loading, errorMessage, onSubmit }: LoginForm
       </form>
 
       {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+      <p className="auth-hint">Session is maintained with HttpOnly auth cookie.</p>
     </section>
   );
 }
