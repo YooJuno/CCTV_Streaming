@@ -27,7 +27,7 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
   const [metrics, setMetrics] = useState<PlaybackMetrics>(INITIAL_METRICS);
 
   const manifestUrl = useMemo(() => {
-    const baseUrl = import.meta.env.VITE_HLS_BASE_URL || "http://localhost:8080/hls";
+    const baseUrl = (import.meta.env.VITE_HLS_BASE_URL || "/hls").replace(/\/$/, "");
     const overrideUrl = import.meta.env.VITE_HLS_URL;
     return buildManifestUrl(baseUrl, streamId, overrideUrl);
   }, [streamId]);
