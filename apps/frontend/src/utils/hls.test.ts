@@ -3,12 +3,12 @@ import { buildManifestUrl, computeLatencySeconds } from "./hls";
 
 describe("hls utils", () => {
   it("builds encoded manifest url", () => {
-    const url = buildManifestUrl("http://localhost:8080/hls", "cam 1/2");
-    expect(url).toBe("http://localhost:8080/hls/cam%201%2F2.m3u8");
+    const url = buildManifestUrl("http://localhost:8081/hls", "cam 1/2");
+    expect(url).toBe("http://localhost:8081/hls/cam%201%2F2.m3u8");
   });
 
   it("uses override url when provided", () => {
-    const url = buildManifestUrl("http://localhost:8080/hls", "mystream", "http://cdn/live.m3u8");
+    const url = buildManifestUrl("http://localhost:8081/hls", "mystream", "http://cdn/live.m3u8");
     expect(url).toBe("http://cdn/live.m3u8");
   });
 

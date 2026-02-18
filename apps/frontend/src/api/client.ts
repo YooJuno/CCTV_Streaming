@@ -1,6 +1,8 @@
 import type { AuthResponse, StreamsResponse } from "../types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+  ? import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "")
+  : "";
 
 interface ApiError {
   error?: string;
@@ -24,8 +26,17 @@ async function parseJsonOrThrow<T>(response: Response): Promise<T> {
   throw new Error(`HTTP ${response.status}${suffix}`);
 }
 
+async function fetchOrThrow(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    const configuredBase = API_BASE_URL || window.location.origin;
+    throw new Error(`Network error: cannot reach backend (configured base: ${configuredBase})`);
+  }
+}
+
 export async function login(username: string, password: string): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+  const response = await fetchOrThrow(`${API_BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -36,7 +47,7 @@ export async function login(username: string, password: string): Promise<AuthRes
 }
 
 export async function fetchStreams(token: string): Promise<StreamsResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/streams`, {
+  const response = await fetchOrThrow(`${API_BASE_URL}/api/streams`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
