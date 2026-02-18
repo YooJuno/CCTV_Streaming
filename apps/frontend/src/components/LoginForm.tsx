@@ -6,8 +6,8 @@ interface LoginFormProps {
   onSubmit: (username: string, password: string) => Promise<void>;
 }
 
-const DEFAULT_USERNAME = import.meta.env.VITE_DEFAULT_USERNAME || "admin";
-const DEFAULT_PASSWORD = import.meta.env.VITE_DEFAULT_PASSWORD || "admin123";
+const DEFAULT_USERNAME = import.meta.env.VITE_DEFAULT_USERNAME || "";
+const DEFAULT_PASSWORD = import.meta.env.VITE_DEFAULT_PASSWORD || "";
 
 export default function LoginForm({ loading, errorMessage, onSubmit }: LoginFormProps) {
   const [username, setUsername] = useState(DEFAULT_USERNAME);
