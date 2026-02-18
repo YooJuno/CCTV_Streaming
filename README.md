@@ -93,3 +93,6 @@ npm --prefix apps/frontend run dev
 
 `scripts/mjpeg_to_hls.sh`는 동일 `STREAM_ID` 중복 실행을 lock으로 차단하고,
 실패 반복 시 자동 백오프 재시도를 수행합니다.
+
+추가로 입력 MJPEG URL 사전 프로브를 수행해(기본 `SOURCE_PROBE_ENABLED=true`)
+소스가 죽은 상태에서 ffmpeg 프로세스를 무의미하게 반복 기동하지 않도록 되어 있습니다.

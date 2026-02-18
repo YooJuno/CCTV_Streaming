@@ -21,12 +21,53 @@ PIX_FMT="${PIX_FMT:-yuv420p}"
 RETRY_DELAY_SECONDS="${RETRY_DELAY_SECONDS:-1}"
 MAX_RETRY_DELAY_SECONDS="${MAX_RETRY_DELAY_SECONDS:-15}"
 STALL_TIMEOUT_SECONDS="${STALL_TIMEOUT_SECONDS:-20}"
+SOURCE_PROBE_ENABLED="${SOURCE_PROBE_ENABLED:-true}"
+SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS="${SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS:-2}"
+SOURCE_PROBE_MAX_TIME_SECONDS="${SOURCE_PROBE_MAX_TIME_SECONDS:-4}"
 FFMPEG_BIN="${FFMPEG_BIN:-}"
 LOCAL_FFMPEG="$ROOT_DIR/tools/ffmpeg/ffmpeg"
 LOCK_DIR="${LOCK_DIR:-/tmp/cctv_streaming_locks}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+calculate_delay_seconds() {
+  local failures="$1"
+  local delay_seconds="$RETRY_DELAY_SECONDS"
+  if [ "$failures" -gt 0 ]; then
+    delay_seconds=$((RETRY_DELAY_SECONDS * (failures + 1)))
+    if [ "$delay_seconds" -gt "$MAX_RETRY_DELAY_SECONDS" ]; then
+      delay_seconds="$MAX_RETRY_DELAY_SECONDS"
+    fi
+  fi
+  echo "$delay_seconds"
+}
+
+probe_source() {
+  if [ "$SOURCE_PROBE_ENABLED" != "true" ]; then
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    log "Warning: curl not found, source preflight probe skipped."
+    return 0
+  fi
+
+  local probe_file
+  probe_file="$(mktemp)"
+  if curl -fsS --connect-timeout "$SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS" --max-time "$SOURCE_PROBE_MAX_TIME_SECONDS" \
+    --range 0-4096 "$MJPEG_URL" -o "$probe_file"; then
+    rm -f "$probe_file"
+    return 0
+  fi
+
+  local curl_exit=$?
+  if [ "$curl_exit" -eq 28 ] && [ -s "$probe_file" ]; then
+    rm -f "$probe_file"
+    return 0
+  fi
+  rm -f "$probe_file"
+  return 1
 }
 
 if [ -z "$FFMPEG_BIN" ]; then
@@ -75,6 +116,7 @@ HLS_FLAGS="append_list+program_date_time+independent_segments+omit_endlist"
 if [ "$HLS_DELETE" = "true" ]; then
   HLS_FLAGS="delete_segments+$HLS_FLAGS"
 fi
+HLS_FLAGS="$HLS_FLAGS+temp_file"
 
 find "$HLS_DIR" -maxdepth 1 -type f \( -name "${STREAM_ID}.m3u8" -o -name "${STREAM_ID}_*.ts" \) -delete
 
@@ -92,6 +134,9 @@ log "VIDEO_TUNE=$VIDEO_TUNE"
 log "FFMPEG_BIN=$FFMPEG_BIN"
 log "STALL_TIMEOUT_SECONDS=$STALL_TIMEOUT_SECONDS"
 log "MAX_RETRY_DELAY_SECONDS=$MAX_RETRY_DELAY_SECONDS"
+log "SOURCE_PROBE_ENABLED=$SOURCE_PROBE_ENABLED"
+log "SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS=$SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS"
+log "SOURCE_PROBE_MAX_TIME_SECONDS=$SOURCE_PROBE_MAX_TIME_SECONDS"
 
 stop_requested=0
 on_stop_signal() {
@@ -103,6 +148,17 @@ consecutive_failures=0
 while true; do
   if [ "$stop_requested" -eq 1 ]; then
     break
+  fi
+
+  if ! probe_source; then
+    consecutive_failures=$((consecutive_failures + 1))
+    delay_seconds="$(calculate_delay_seconds "$consecutive_failures")"
+    log "Source probe failed for ${MJPEG_URL}. retrying in ${delay_seconds}s..."
+    if [ "$stop_requested" -eq 1 ]; then
+      break
+    fi
+    sleep "$delay_seconds"
+    continue
   fi
 
   "$FFMPEG_BIN" -hide_banner -loglevel warning \
@@ -173,13 +229,7 @@ while true; do
     consecutive_failures=0
   fi
 
-  delay_seconds="$RETRY_DELAY_SECONDS"
-  if [ "$consecutive_failures" -gt 0 ]; then
-    delay_seconds=$((RETRY_DELAY_SECONDS * (consecutive_failures + 1)))
-    if [ "$delay_seconds" -gt "$MAX_RETRY_DELAY_SECONDS" ]; then
-      delay_seconds="$MAX_RETRY_DELAY_SECONDS"
-    fi
-  fi
+  delay_seconds="$(calculate_delay_seconds "$consecutive_failures")"
 
   if [ "$restarted_for_stall" -eq 1 ]; then
     log "ffmpeg was restarted after stream stall."
