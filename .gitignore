@@ -34,18 +34,20 @@ pip-delete-this-directory.txt
 
 # Node / Front-end
 node_modules/
-apps/front-end/node_modules/
-apps/front-end/dist/
-apps/front-end/.vite/
+apps/frontend/node_modules/
+apps/frontend/dist/
+apps/frontend/.vite/
 coverage/
 
 # Java / Gradle
 .gradle/
 build/
-apps/back-end/.gradle/
-apps/back-end/build/
+apps/backend/.gradle/
+apps/backend/build/
+apps/backend/hls/
 *.class
 *.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 
@@ -67,6 +69,7 @@ htmlcov/
 
 # Legacy artifacts
 rtsp-simple-server/
+tools/ffmpeg/
 
 # Keep repository ignore config tracked
 !/.gitignore
