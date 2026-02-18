@@ -10,9 +10,9 @@ Provides JWT auth, stream authorization, health checks, and HLS static files.
 - Authorized streams: `GET /api/streams`
 - HLS: `/hls/{streamId}.m3u8` (JWT required)
 
-`hls.path` can be configured in `apps/back-end/src/main/resources/application.properties`.
-`hls.allowed-origins` controls CORS for `/hls/**` (default `http://localhost:5173`).
-`api.allowed-origins` controls CORS for `/api/**` (default `http://localhost:5173`).
+`hls.path` can be configured in `apps/backend/src/main/resources/application.properties`.
+`hls.allowed-origins` controls CORS for `/hls/**` (origin patterns).
+`api.allowed-origins` controls CORS for `/api/**` (origin patterns).
 `/health` includes basic HLS directory readability/writability info.
 
 See root `README.md` for full run instructions.

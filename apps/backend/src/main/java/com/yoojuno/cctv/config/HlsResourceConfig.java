@@ -13,7 +13,7 @@ import java.nio.file.Path;
 public class HlsResourceConfig implements WebMvcConfigurer {
     @Value("${hls.path:./hls}")
     private String hlsPath;
-    @Value("${hls.allowed-origins:*}")
+    @Value("${hls.allowed-origins:http://localhost:*,http://127.0.0.1:*,http://192.168.*.*:*,http://10.*.*.*:*,http://172.*.*.*:*}")
     private String[] hlsAllowedOrigins;
     @Value("${hls.allowed-methods:GET,HEAD,OPTIONS}")
     private String[] hlsAllowedMethods;
@@ -29,7 +29,7 @@ public class HlsResourceConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/hls/**")
-                .allowedOrigins(hlsAllowedOrigins)
+                .allowedOriginPatterns(hlsAllowedOrigins)
                 .allowedMethods(hlsAllowedMethods)
                 .allowedHeaders("*")
                 .maxAge(3600);
