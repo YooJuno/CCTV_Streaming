@@ -18,6 +18,7 @@ public class ApiCorsConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(apiAllowedOrigins)
                 .allowedMethods(apiAllowedMethods)
                 .allowedHeaders("*")
+                .allowCredentials(true)
                 .maxAge(3600);
     }
 }

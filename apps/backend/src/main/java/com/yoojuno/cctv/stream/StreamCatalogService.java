@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,13 +65,5 @@ public class StreamCatalogService {
             }
         }
         return result;
-    }
-
-    public boolean exists(String streamId) {
-        return catalog.containsKey(streamId);
-    }
-
-    public Collection<String> streamIds() {
-        return catalog.keySet();
     }
 }

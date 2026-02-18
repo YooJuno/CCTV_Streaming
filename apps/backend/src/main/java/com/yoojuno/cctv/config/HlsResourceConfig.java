@@ -32,6 +32,7 @@ public class HlsResourceConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(hlsAllowedOrigins)
                 .allowedMethods(hlsAllowedMethods)
                 .allowedHeaders("*")
+                .allowCredentials(true)
                 .maxAge(3600);
     }
 }
