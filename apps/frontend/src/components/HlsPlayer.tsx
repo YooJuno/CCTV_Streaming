@@ -6,10 +6,10 @@ import type HlsType from "hls.js";
 
 interface HlsPlayerProps {
   streamId: string;
-  token: string;
 }
 
 const MAX_NETWORK_RETRIES = 5;
+const MAX_NOT_FOUND_RETRIES = 40;
 const RETRY_BASE_DELAY_MS = 500;
 
 const INITIAL_METRICS: PlaybackMetrics = {
@@ -20,7 +20,7 @@ const INITIAL_METRICS: PlaybackMetrics = {
   retryCount: 0,
 };
 
-export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
+export default function HlsPlayer({ streamId }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<PlaybackStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -40,10 +40,10 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
 
     let disposed = false;
     let hls: HlsType | null = null;
-    let hlsCtor: typeof import("hls.js").default | null = null;
     let retryTimer: number | null = null;
     let statsTimer: number | null = null;
     let retryCount = 0;
+    let notFoundRetryCount = 0;
     let stallCount = 0;
 
     setStatus("loading");
@@ -70,7 +70,7 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
         bufferSec,
         droppedFrames,
         stallCount,
-        retryCount,
+        retryCount: retryCount + notFoundRetryCount,
       }));
     };
 
@@ -102,10 +102,16 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
       video.play().then(() => setStatus("playing")).catch(() => setStatus("ready"));
     };
 
-    const buildAuthHeaders = (headers?: HeadersInit) => {
-      const next = new Headers(headers);
-      next.set("Authorization", `Bearer ${token}`);
-      return next;
+    const scheduleReload = (delayMs: number, message: string) => {
+      setStatus("network retry");
+      setErrorMessage(message);
+      setMetrics((prev) => ({ ...prev, retryCount: retryCount + notFoundRetryCount }));
+      clearRetryTimer();
+      retryTimer = window.setTimeout(() => {
+        if (!disposed && hls) {
+          hls.startLoad();
+        }
+      }, delayMs);
     };
 
     video.addEventListener("waiting", markWaiting);
@@ -118,13 +124,19 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
       if (disposed) {
         return;
       }
-      hlsCtor = module.default;
-      if (!hlsCtor.isSupported()) {
+      const ctor = module.default;
+      if (!ctor.isSupported()) {
+        if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = manifestUrl;
+          setStatus("ready");
+          setErrorMessage(null);
+          tryPlay();
+          return;
+        }
         setStatus("hls unsupported");
         setErrorMessage("This browser does not support authenticated HLS playback.");
         return;
       }
-      const ctor = hlsCtor;
 
       hls = new ctor({
         lowLatencyMode: true,
@@ -132,12 +144,12 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
         liveSyncDurationCount: 3,
         maxLiveSyncPlaybackRate: 1.5,
         xhrSetup: (xhr) => {
-          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          xhr.withCredentials = true;
         },
         fetchSetup: (context, initParams) =>
           new Request(context.url, {
             ...initParams,
-            headers: buildAuthHeaders(initParams?.headers),
+            credentials: "include",
           }),
       });
 
@@ -146,6 +158,7 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
 
       hls.on(ctor.Events.MANIFEST_PARSED, () => {
         retryCount = 0;
+        notFoundRetryCount = 0;
         setStatus("ready");
         setErrorMessage(null);
         tryPlay();
@@ -167,6 +180,12 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
         }
 
         if (data.type === ctor.ErrorTypes.NETWORK_ERROR && httpCode === 404) {
+          if (notFoundRetryCount < MAX_NOT_FOUND_RETRIES) {
+            notFoundRetryCount += 1;
+            const delayMs = Math.min(5000, RETRY_BASE_DELAY_MS * notFoundRetryCount);
+            scheduleReload(delayMs, `HLS stream is not generated yet (404). Waiting for pipeline... (${notFoundRetryCount}/${MAX_NOT_FOUND_RETRIES})`);
+            return;
+          }
           setStatus("fatal error");
           setErrorMessage("HLS stream is not generated yet (404). Start the FFmpeg pipeline first.");
           hls?.destroy();
@@ -177,16 +196,8 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
         const shouldRetryNetwork = data.type === ctor.ErrorTypes.NETWORK_ERROR && retryCount < MAX_NETWORK_RETRIES && (!httpCode || httpCode >= 500);
         if (shouldRetryNetwork) {
           retryCount += 1;
-          setStatus("network retry");
           const codeSuffix = httpCode ? ` (HTTP ${httpCode})` : "";
-          setErrorMessage(`Network issue detected${codeSuffix}. Retrying (${retryCount}/${MAX_NETWORK_RETRIES})...`);
-          setMetrics((prev) => ({ ...prev, retryCount }));
-          clearRetryTimer();
-          retryTimer = window.setTimeout(() => {
-            if (!disposed && hls) {
-              hls.startLoad();
-            }
-          }, RETRY_BASE_DELAY_MS * retryCount);
+          scheduleReload(RETRY_BASE_DELAY_MS * retryCount, `Network issue detected${codeSuffix}. Retrying (${retryCount}/${MAX_NETWORK_RETRIES})...`);
           return;
         }
         if (data.type === ctor.ErrorTypes.MEDIA_ERROR) {
@@ -215,10 +226,9 @@ export default function HlsPlayer({ streamId, token }: HlsPlayerProps) {
         hls.destroy();
         hls = null;
       }
-      hlsCtor = null;
       cleanupVideo();
     };
-  }, [manifestUrl, token]);
+  }, [manifestUrl]);
 
   return (
     <div className="hls-player">

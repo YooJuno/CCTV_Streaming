@@ -1,47 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchStreams, login } from "./api/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchMe, fetchStreamHealth, fetchStreams, login, logout } from "./api/client";
 import LoginForm from "./components/LoginForm";
 import StreamCard from "./components/StreamCard";
-import type { AuthSession, StreamInfo } from "./types";
+import type { AuthSession, StreamHealth, StreamInfo } from "./types";
 
-const AUTH_STORAGE_KEY = "cctv_auth_session_v1";
 const HTTP_UNAUTHORIZED_PREFIX = "HTTP 401";
-
-function loadStoredSession(): AuthSession | null {
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as AuthSession;
-    if (!parsed?.token || !parsed?.username) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveSession(session: AuthSession | null) {
-  if (!session) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-}
 
 function isUnauthorizedError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(HTTP_UNAUTHORIZED_PREFIX);
 }
 
 export default function App() {
-  const [session, setSession] = useState<AuthSession | null>(() => loadStoredSession());
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [streams, setStreams] = useState<StreamInfo[]>([]);
+  const [streamHealthById, setStreamHealthById] = useState<Record<string, StreamHealth>>({});
+  const [liveThresholdSeconds, setLiveThresholdSeconds] = useState<number>(0);
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [loadingStreams, setLoadingStreams] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [streamsError, setStreamsError] = useState<string | null>(null);
+  const skipNextAutoFetchRef = useRef(false);
 
   const subtitle = useMemo(() => {
     if (!session) {
@@ -53,9 +32,54 @@ export default function App() {
   function expireSession() {
     setSession(null);
     setStreams([]);
+    setStreamHealthById({});
+    setLiveThresholdSeconds(0);
     setStreamsError(null);
     setAuthError("Session expired. Please sign in again.");
-    saveSession(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMe()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        skipNextAutoFetchRef.current = true;
+        setSession({
+          username: response.username,
+          displayName: response.displayName,
+        });
+        setStreams(response.streams ?? []);
+        setStreamsError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        if (!isUnauthorizedError(error)) {
+          const message = error instanceof Error ? error.message : "Failed to restore session.";
+          setAuthError(message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRestoringSession(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function clearAuthState() {
+    setSession(null);
+    setStreams([]);
+    setStreamHealthById({});
+    setLiveThresholdSeconds(0);
+    setAuthError(null);
+    setStreamsError(null);
   }
 
   useEffect(() => {
@@ -63,12 +87,16 @@ export default function App() {
       setStreams([]);
       return;
     }
+    if (skipNextAutoFetchRef.current) {
+      skipNextAutoFetchRef.current = false;
+      return;
+    }
 
     let cancelled = false;
     setLoadingStreams(true);
     setStreamsError(null);
 
-    fetchStreams(session.token)
+    fetchStreams()
       .then((response) => {
         if (!cancelled) {
           setStreams(response.streams);
@@ -95,20 +123,64 @@ export default function App() {
     };
   }, [session]);
 
+  useEffect(() => {
+    if (!session) {
+      setStreamHealthById({});
+      setLiveThresholdSeconds(0);
+      return;
+    }
+
+    let cancelled = false;
+    let timerId: number | null = null;
+
+    const fetchHealth = async () => {
+      try {
+        const response = await fetchStreamHealth();
+        if (cancelled) {
+          return;
+        }
+        const nextMap: Record<string, StreamHealth> = {};
+        for (const item of response.streams) {
+          nextMap[item.id] = item;
+        }
+        setStreamHealthById(nextMap);
+        setLiveThresholdSeconds(response.liveThresholdSeconds);
+      } catch (error: unknown) {
+        if (cancelled) {
+          return;
+        }
+        if (isUnauthorizedError(error)) {
+          expireSession();
+        }
+      }
+    };
+
+    void fetchHealth();
+    timerId = window.setInterval(() => {
+      void fetchHealth();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+      }
+    };
+  }, [session]);
+
   async function handleLogin(username: string, password: string) {
     setLoadingAuth(true);
     setAuthError(null);
     try {
       const result = await login(username, password);
       const nextSession: AuthSession = {
-        token: result.accessToken,
         username: result.username,
         displayName: result.displayName,
       };
+      skipNextAutoFetchRef.current = true;
       setStreamsError(null);
       setSession(nextSession);
       setStreams(result.streams ?? []);
-      saveSession(nextSession);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Login failed.";
       setAuthError(message);
@@ -117,12 +189,14 @@ export default function App() {
     }
   }
 
-  function handleLogout() {
-    setSession(null);
-    setStreams([]);
-    setAuthError(null);
-    setStreamsError(null);
-    saveSession(null);
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch {
+      // ignore logout API errors and clear local state anyway
+    } finally {
+      clearAuthState();
+    }
   }
 
   async function refreshStreams() {
@@ -132,7 +206,7 @@ export default function App() {
     setLoadingStreams(true);
     setStreamsError(null);
     try {
-      const response = await fetchStreams(session.token);
+      const response = await fetchStreams();
       setStreams(response.streams);
     } catch (error: unknown) {
       if (isUnauthorizedError(error)) {
@@ -158,14 +232,16 @@ export default function App() {
             <button type="button" className="btn secondary" onClick={refreshStreams} disabled={loadingStreams}>
               {loadingStreams ? "Refreshing..." : "Refresh Streams"}
             </button>
-            <button type="button" className="btn danger" onClick={handleLogout}>
+            <button type="button" className="btn danger" onClick={() => void handleLogout()}>
               Logout
             </button>
           </div>
         ) : null}
       </header>
 
-      {!session ? (
+      {restoringSession ? <p className="loading-text">Restoring session...</p> : null}
+
+      {restoringSession ? null : !session ? (
         <LoginForm loading={loadingAuth} errorMessage={authError} onSubmit={handleLogin} />
       ) : (
         <main>
@@ -179,7 +255,12 @@ export default function App() {
 
           <section className="stream-grid">
             {streams.map((stream) => (
-              <StreamCard key={stream.id} stream={stream} token={session.token} />
+              <StreamCard
+                key={stream.id}
+                stream={stream}
+                health={streamHealthById[stream.id]}
+                liveThresholdSeconds={liveThresholdSeconds}
+              />
             ))}
           </section>
         </main>

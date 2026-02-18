@@ -4,8 +4,6 @@ export interface StreamInfo {
 }
 
 export interface AuthResponse {
-  accessToken: string;
-  tokenType: string;
   expiresInSeconds: number;
   username: string;
   displayName: string;
@@ -16,8 +14,20 @@ export interface StreamsResponse {
   streams: StreamInfo[];
 }
 
+export interface StreamHealth {
+  id: string;
+  live: boolean;
+  manifestExists: boolean;
+  lastModifiedEpochMs: number;
+  manifestAgeSeconds: number;
+}
+
+export interface StreamsHealthResponse {
+  streams: StreamHealth[];
+  liveThresholdSeconds: number;
+}
+
 export interface AuthSession {
-  token: string;
   username: string;
   displayName: string;
 }
@@ -31,7 +41,6 @@ export type PlaybackStatus =
   | "network retry"
   | "media recovery"
   | "hls unsupported"
-  | "hls load failed"
   | "video error"
   | "fatal error";
 

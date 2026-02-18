@@ -1,4 +1,4 @@
-import type { AuthResponse, StreamsResponse } from "../types";
+import type { AuthResponse, StreamsHealthResponse, StreamsResponse } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "")
@@ -28,7 +28,10 @@ async function parseJsonOrThrow<T>(response: Response): Promise<T> {
 
 async function fetchOrThrow(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(input, init);
+    return await fetch(input, {
+      credentials: "include",
+      ...init,
+    });
   } catch {
     const configuredBase = API_BASE_URL || window.location.origin;
     throw new Error(`Network error: cannot reach backend (configured base: ${configuredBase})`);
@@ -46,12 +49,32 @@ export async function login(username: string, password: string): Promise<AuthRes
   return parseJsonOrThrow<AuthResponse>(response);
 }
 
-export async function fetchStreams(token: string): Promise<StreamsResponse> {
+export async function fetchMe(): Promise<AuthResponse> {
+  const response = await fetchOrThrow(`${API_BASE_URL}/api/auth/me`, {
+    method: "GET",
+  });
+  return parseJsonOrThrow<AuthResponse>(response);
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetchOrThrow(`${API_BASE_URL}/api/auth/logout`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    await parseJsonOrThrow(response);
+  }
+}
+
+export async function fetchStreams(): Promise<StreamsResponse> {
   const response = await fetchOrThrow(`${API_BASE_URL}/api/streams`, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   });
   return parseJsonOrThrow<StreamsResponse>(response);
+}
+
+export async function fetchStreamHealth(): Promise<StreamsHealthResponse> {
+  const response = await fetchOrThrow(`${API_BASE_URL}/api/streams/health`, {
+    method: "GET",
+  });
+  return parseJsonOrThrow<StreamsHealthResponse>(response);
 }
