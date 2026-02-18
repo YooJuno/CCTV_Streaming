@@ -12,6 +12,7 @@ export default function StreamCard({ stream, health, liveThresholdSeconds }: Str
   const [active, setActive] = useState(false);
   const liveState = health ? (health.live ? "LIVE" : "OFFLINE") : "CHECKING";
   const liveClass = health ? (health.live ? "live" : "offline") : "checking";
+  const cardTone = health ? (health.live ? "tone-live" : "tone-offline") : "tone-checking";
 
   const placeholderText = health
     ? health.live
@@ -19,16 +20,23 @@ export default function StreamCard({ stream, health, liveThresholdSeconds }: Str
       : `Stream is offline. Start MJPEG->HLS pipeline and wait up to ${liveThresholdSeconds || 12}s.`
     : "Checking stream health...";
 
+  const manifestAgeText =
+    health && health.manifestAgeSeconds >= 0 ? `${health.manifestAgeSeconds}s ago` : "Not detected";
+
   return (
-    <article className="stream-card">
+    <article className={`stream-card ${cardTone}`}>
       <header className="stream-card-header">
         <div>
           <h3>{stream.name}</h3>
           <p className="stream-id">
             {stream.id} <span className={`stream-live-pill ${liveClass}`}>{liveState}</span>
           </p>
+          <div className="stream-meta-row">
+            <span className="stream-meta-pill">Manifest: {health?.manifestExists ? "YES" : "NO"}</span>
+            <span className="stream-meta-pill">Updated: {manifestAgeText}</span>
+          </div>
         </div>
-        <button type="button" className={`btn ${active ? "danger" : "secondary"}`} onClick={() => setActive((v) => !v)}>
+        <button type="button" className={`btn ${active ? "danger" : "ghost"}`} onClick={() => setActive((v) => !v)}>
           {active ? "Stop" : "Start"}
         </button>
       </header>

@@ -29,6 +29,32 @@ export default function App() {
     return `Signed in as ${session.displayName}`;
   }, [session]);
 
+  const healthSummary = useMemo(() => {
+    let live = 0;
+    let offline = 0;
+    let checking = 0;
+
+    for (const stream of streams) {
+      const health = streamHealthById[stream.id];
+      if (!health) {
+        checking += 1;
+        continue;
+      }
+      if (health.live) {
+        live += 1;
+      } else {
+        offline += 1;
+      }
+    }
+
+    return {
+      total: streams.length,
+      live,
+      offline,
+      checking,
+    };
+  }, [streamHealthById, streams]);
+
   function expireSession() {
     setSession(null);
     setStreams([]);
@@ -223,18 +249,20 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>CCTV Streaming Console</h1>
+        <div className="topbar-title-block">
+          <p className="topbar-kicker">CCTV OPERATIONS</p>
+          <h1>Streaming Control Deck</h1>
           <p>{subtitle}</p>
         </div>
         {session ? (
           <div className="topbar-actions">
-            <button type="button" className="btn secondary" onClick={refreshStreams} disabled={loadingStreams}>
+            <button type="button" className="btn ghost" onClick={refreshStreams} disabled={loadingStreams}>
               {loadingStreams ? "Refreshing..." : "Refresh Streams"}
             </button>
             <button type="button" className="btn danger" onClick={() => void handleLogout()}>
               Logout
             </button>
+            <span className="polling-note">Health poll: 4s</span>
           </div>
         ) : null}
       </header>
@@ -244,13 +272,34 @@ export default function App() {
       {restoringSession ? null : !session ? (
         <LoginForm loading={loadingAuth} errorMessage={authError} onSubmit={handleLogin} />
       ) : (
-        <main>
+        <main className="dashboard-main">
+          <section className="overview-grid">
+            <article className="overview-card total">
+              <span className="overview-label">Authorized Streams</span>
+              <strong>{healthSummary.total}</strong>
+              <p>Visible to your account</p>
+            </article>
+            <article className="overview-card live">
+              <span className="overview-label">Live Now</span>
+              <strong>{healthSummary.live}</strong>
+              <p>Manifest updated within {liveThresholdSeconds || 12}s</p>
+            </article>
+            <article className="overview-card offline">
+              <span className="overview-label">Offline</span>
+              <strong>{healthSummary.offline}</strong>
+              <p>{healthSummary.checking > 0 ? `${healthSummary.checking} checking` : "No pending checks"}</p>
+            </article>
+          </section>
+
           {streamsError ? <p className="error-text">{streamsError}</p> : null}
 
           {loadingStreams ? <p className="loading-text">Loading streams...</p> : null}
 
           {!loadingStreams && !streamsError && streams.length === 0 ? (
-            <div className="empty-state">No streams available for this account.</div>
+            <div className="empty-state">
+              <strong>No stream assignments for this account.</strong>
+              <p>Check `AUTH_USERS` permissions or stream catalog configuration in backend.</p>
+            </div>
           ) : null}
 
           <section className="stream-grid">
