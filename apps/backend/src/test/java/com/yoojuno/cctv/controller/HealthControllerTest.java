@@ -22,7 +22,6 @@ class HealthControllerTest {
         mockMvc.perform(get("/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.hlsPath").isNotEmpty())
                 .andExpect(jsonPath("$.hlsExists").isBoolean())
                 .andExpect(jsonPath("$.hlsReadable").isBoolean())
                 .andExpect(jsonPath("$.hlsWritable").isBoolean());

@@ -1,8 +1,8 @@
 package com.yoojuno.cctv.auth;
 
+import jakarta.annotation.PostConstruct;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
-import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -18,11 +18,24 @@ import java.util.Set;
 
 @Service
 public class JwtService {
-    @Value("${auth.jwt.secret:change-this-jwt-secret-to-a-long-random-value}")
+    @Value("${auth.jwt.secret:}")
     private String secret;
 
     @Value("${auth.jwt.expiration-seconds:3600}")
     private long expirationSeconds;
+
+    private SecretKey cachedSigningKey;
+
+    @PostConstruct
+    void initSigningKey() {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("auth.jwt.secret is empty. Configure AUTH_JWT_SECRET.");
+        }
+        if ("change-this-jwt-secret-to-a-long-random-value".equals(secret)) {
+            throw new IllegalStateException("auth.jwt.secret uses placeholder value. Set a real secret.");
+        }
+        this.cachedSigningKey = createSigningKey(secret);
+    }
 
     public String issueToken(AuthenticatedUser user) {
         Instant now = Instant.now();
@@ -54,20 +67,15 @@ public class JwtService {
         );
     }
 
-    public boolean isValid(String token) {
-        try {
-            parseToken(token);
-            return true;
-        } catch (JwtException | IllegalArgumentException e) {
-            return false;
-        }
-    }
-
     public long expirationSeconds() {
         return expirationSeconds;
     }
 
     private SecretKey signingKey() {
+        return cachedSigningKey;
+    }
+
+    private static SecretKey createSigningKey(String secret) {
         // Treat long secrets as raw text; if the secret looks base64, decode it.
         byte[] keyBytes;
         if (looksLikeBase64(secret)) {
