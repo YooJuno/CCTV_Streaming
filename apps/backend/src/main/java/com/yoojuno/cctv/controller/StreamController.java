@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -41,7 +42,12 @@ public class StreamController {
         }
         List<StreamInfo> streams = streamCatalogService.forAllowedStreamIds(user.allowedStreams());
         List<StreamHealthService.StreamHealth> health = streamHealthService.healthForStreams(streams);
-        return ResponseEntity.ok(new StreamsHealthResponse(health, streamHealthService.liveThresholdSeconds()));
+        return ResponseEntity.ok(new StreamsHealthResponse(
+                health,
+                streamHealthService.liveThresholdSeconds(),
+                streamHealthService.recommendedPollMs(),
+                Instant.now().toEpochMilli()
+        ));
     }
 
     public record StreamsResponse(List<StreamInfo> streams) {
@@ -49,7 +55,9 @@ public class StreamController {
 
     public record StreamsHealthResponse(
             List<StreamHealthService.StreamHealth> streams,
-            long liveThresholdSeconds
+            long liveThresholdSeconds,
+            long recommendedPollMs,
+            long generatedAtEpochMs
     ) {
     }
 }

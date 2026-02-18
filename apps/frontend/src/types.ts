@@ -20,11 +20,20 @@ export interface StreamHealth {
   manifestExists: boolean;
   lastModifiedEpochMs: number;
   manifestAgeSeconds: number;
+  state: "LIVE" | "STARTING" | "STALE" | "OFFLINE" | "ERROR";
+  reason: string;
+  segmentCount: number;
+  targetDurationSeconds: number;
+  endList: boolean;
+  latestSegmentExists: boolean;
+  latestSegmentSizeBytes: number;
 }
 
 export interface StreamsHealthResponse {
   streams: StreamHealth[];
   liveThresholdSeconds: number;
+  recommendedPollMs: number;
+  generatedAtEpochMs: number;
 }
 
 export interface AuthSession {

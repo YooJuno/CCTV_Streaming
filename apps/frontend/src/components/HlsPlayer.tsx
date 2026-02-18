@@ -11,6 +11,9 @@ interface HlsPlayerProps {
 const MAX_NETWORK_RETRIES = 5;
 const MAX_NOT_FOUND_RETRIES = 40;
 const RETRY_BASE_DELAY_MS = 500;
+const MAX_FATAL_RELOADS = 6;
+const FATAL_RELOAD_BASE_DELAY_MS = 1500;
+const MAX_MEDIA_RECOVERIES = 3;
 
 const INITIAL_METRICS: PlaybackMetrics = {
   latencySec: null,
@@ -45,6 +48,8 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     let retryCount = 0;
     let notFoundRetryCount = 0;
     let stallCount = 0;
+    let fatalReloadCount = 0;
+    let mediaRecoveryCount = 0;
 
     setStatus("loading");
     setErrorMessage(null);
@@ -114,6 +119,22 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       }, delayMs);
     };
 
+    const scheduleFullReload = (delayMs: number, message: string) => {
+      setStatus("network retry");
+      setErrorMessage(message);
+      clearRetryTimer();
+      retryTimer = window.setTimeout(() => {
+        if (disposed) {
+          return;
+        }
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+        void initHls();
+      }, delayMs);
+    };
+
     video.addEventListener("waiting", markWaiting);
     video.addEventListener("playing", markPlaying);
     video.addEventListener("error", markVideoError);
@@ -159,6 +180,8 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       hls.on(ctor.Events.MANIFEST_PARSED, () => {
         retryCount = 0;
         notFoundRetryCount = 0;
+        fatalReloadCount = 0;
+        mediaRecoveryCount = 0;
         setStatus("ready");
         setErrorMessage(null);
         tryPlay();
@@ -200,10 +223,33 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
           scheduleReload(RETRY_BASE_DELAY_MS * retryCount, `Network issue detected${codeSuffix}. Retrying (${retryCount}/${MAX_NETWORK_RETRIES})...`);
           return;
         }
+        if (data.type === ctor.ErrorTypes.NETWORK_ERROR && fatalReloadCount < MAX_FATAL_RELOADS) {
+          fatalReloadCount += 1;
+          const codeSuffix = httpCode ? ` (HTTP ${httpCode})` : "";
+          const delayMs = Math.min(15000, FATAL_RELOAD_BASE_DELAY_MS * fatalReloadCount);
+          scheduleFullReload(delayMs, `Persistent network issue${codeSuffix}. Reinitializing player (${fatalReloadCount}/${MAX_FATAL_RELOADS})...`);
+          return;
+        }
         if (data.type === ctor.ErrorTypes.MEDIA_ERROR) {
-          setStatus("media recovery");
-          setErrorMessage("Media decode issue detected. Attempting recovery...");
-          hls?.recoverMediaError();
+          if (mediaRecoveryCount < MAX_MEDIA_RECOVERIES) {
+            mediaRecoveryCount += 1;
+            setStatus("media recovery");
+            setErrorMessage(`Media decode issue detected. Attempting recovery (${mediaRecoveryCount}/${MAX_MEDIA_RECOVERIES})...`);
+            hls?.recoverMediaError();
+            return;
+          }
+          if (fatalReloadCount < MAX_FATAL_RELOADS) {
+            fatalReloadCount += 1;
+            const delayMs = Math.min(15000, FATAL_RELOAD_BASE_DELAY_MS * fatalReloadCount);
+            scheduleFullReload(delayMs, `Media recovery limit reached. Reinitializing player (${fatalReloadCount}/${MAX_FATAL_RELOADS})...`);
+            return;
+          }
+        }
+        if (data.type === ctor.ErrorTypes.MEDIA_ERROR) {
+          setStatus("fatal error");
+          setErrorMessage("Media decode failed repeatedly. Please restart stream source.");
+          hls?.destroy();
+          hls = null;
           return;
         }
         setStatus("fatal error");

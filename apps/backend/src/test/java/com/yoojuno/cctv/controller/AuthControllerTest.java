@@ -92,7 +92,11 @@ class AuthControllerTest {
                         .cookie(authCookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.streams").isArray())
-                .andExpect(jsonPath("$.liveThresholdSeconds").isNumber());
+                .andExpect(jsonPath("$.streams[0].state").isString())
+                .andExpect(jsonPath("$.streams[0].reason").isString())
+                .andExpect(jsonPath("$.liveThresholdSeconds").isNumber())
+                .andExpect(jsonPath("$.recommendedPollMs").isNumber())
+                .andExpect(jsonPath("$.generatedAtEpochMs").isNumber());
     }
 
     @Test

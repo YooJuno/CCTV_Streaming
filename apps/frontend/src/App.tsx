@@ -5,6 +5,8 @@ import StreamCard from "./components/StreamCard";
 import type { AuthSession, StreamHealth, StreamInfo } from "./types";
 
 const HTTP_UNAUTHORIZED_PREFIX = "HTTP 401";
+const DEFAULT_HEALTH_POLL_MS = 4000;
+const MAX_HEALTH_BACKOFF_MS = 30000;
 
 function isUnauthorizedError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(HTTP_UNAUTHORIZED_PREFIX);
@@ -20,7 +22,10 @@ export default function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [streamsError, setStreamsError] = useState<string | null>(null);
+  const [healthWarning, setHealthWarning] = useState<string | null>(null);
+  const [healthPollMs, setHealthPollMs] = useState<number>(DEFAULT_HEALTH_POLL_MS);
   const skipNextAutoFetchRef = useRef(false);
+  const healthPollMsRef = useRef(DEFAULT_HEALTH_POLL_MS);
 
   const subtitle = useMemo(() => {
     if (!session) {
@@ -61,6 +66,9 @@ export default function App() {
     setStreamHealthById({});
     setLiveThresholdSeconds(0);
     setStreamsError(null);
+    setHealthWarning(null);
+    setHealthPollMs(DEFAULT_HEALTH_POLL_MS);
+    healthPollMsRef.current = DEFAULT_HEALTH_POLL_MS;
     setAuthError("Session expired. Please sign in again.");
   }
 
@@ -106,6 +114,9 @@ export default function App() {
     setLiveThresholdSeconds(0);
     setAuthError(null);
     setStreamsError(null);
+    setHealthWarning(null);
+    setHealthPollMs(DEFAULT_HEALTH_POLL_MS);
+    healthPollMsRef.current = DEFAULT_HEALTH_POLL_MS;
   }
 
   useEffect(() => {
@@ -153,11 +164,13 @@ export default function App() {
     if (!session) {
       setStreamHealthById({});
       setLiveThresholdSeconds(0);
+      setHealthWarning(null);
       return;
     }
 
     let cancelled = false;
     let timerId: number | null = null;
+    let consecutiveFailures = 0;
 
     const fetchHealth = async () => {
       try {
@@ -171,25 +184,46 @@ export default function App() {
         }
         setStreamHealthById(nextMap);
         setLiveThresholdSeconds(response.liveThresholdSeconds);
+        const nextPollMs = Math.max(1000, response.recommendedPollMs || DEFAULT_HEALTH_POLL_MS);
+        setHealthPollMs(nextPollMs);
+        healthPollMsRef.current = nextPollMs;
+        setHealthWarning(null);
+        consecutiveFailures = 0;
       } catch (error: unknown) {
         if (cancelled) {
           return;
         }
         if (isUnauthorizedError(error)) {
+          cancelled = true;
           expireSession();
+          return;
         }
+        consecutiveFailures += 1;
+        const backoffMs = Math.min(MAX_HEALTH_BACKOFF_MS, healthPollMsRef.current * (consecutiveFailures + 1));
+        const message = error instanceof Error ? error.message : "Failed to check stream health.";
+        setHealthWarning(`Health polling delayed (${(backoffMs / 1000).toFixed(1)}s): ${message}`);
+      } finally {
+        if (cancelled) {
+          return;
+        }
+        const visibilityMultiplier = document.visibilityState === "hidden" ? 2 : 1;
+        const retryFactor = consecutiveFailures > 0 ? consecutiveFailures + 1 : 1;
+        const nextDelay = Math.min(
+          MAX_HEALTH_BACKOFF_MS,
+          healthPollMsRef.current * retryFactor * visibilityMultiplier,
+        );
+        timerId = window.setTimeout(() => {
+          void fetchHealth();
+        }, nextDelay);
       }
     };
 
     void fetchHealth();
-    timerId = window.setInterval(() => {
-      void fetchHealth();
-    }, 4000);
 
     return () => {
       cancelled = true;
       if (timerId !== null) {
-        window.clearInterval(timerId);
+        window.clearTimeout(timerId);
       }
     };
   }, [session]);
@@ -262,7 +296,7 @@ export default function App() {
             <button type="button" className="btn danger" onClick={() => void handleLogout()}>
               Logout
             </button>
-            <span className="polling-note">Health poll: 4s</span>
+            <span className="polling-note">Health poll: {(healthPollMs / 1000).toFixed(1)}s</span>
           </div>
         ) : null}
       </header>
@@ -292,6 +326,7 @@ export default function App() {
           </section>
 
           {streamsError ? <p className="error-text">{streamsError}</p> : null}
+          {healthWarning ? <p className="warning-text">{healthWarning}</p> : null}
 
           {loadingStreams ? <p className="loading-text">Loading streams...</p> : null}
 
