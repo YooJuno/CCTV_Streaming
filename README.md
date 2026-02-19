@@ -43,6 +43,10 @@ FFMPEG_ARCHIVE_SHA256=<sha256> ./scripts/install_local_ffmpeg.sh
 ```bash
 export AUTH_JWT_SECRET='replace-with-long-random-secret-32bytes-min'
 export AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
+# Optional: if frontend origin is not localhost:5174, allow it explicitly.
+# Example: http://122.45.250.216:5174
+export API_ALLOWED_ORIGINS='http://localhost:5174,http://127.0.0.1:5174'
+export HLS_ALLOWED_ORIGINS="$API_ALLOWED_ORIGINS"
 cd apps/backend
 ./gradlew bootRun
 ```
@@ -88,6 +92,12 @@ npm --prefix apps/frontend run dev
 - 카메라 스트림 확인: `http://<device-ip>:81/stream`
 - HLS 파일 생성 확인: `ls apps/backend/hls`
 - `mystream.m3u8`가 없으면 웹 재생이 불가합니다.
+
+ESP32-CAM Wi-Fi 자격증명은 저장소 파일 대신 아래처럼 로컬 파일 사용 권장:
+
+```bash
+cp apps/cctv/device/wifi_secrets.h.example apps/cctv/device/wifi_secrets.h
+```
 
 ## 운영 팁
 

@@ -18,6 +18,8 @@ Provides cookie-based JWT auth, stream authorization, health checks, and HLS sta
 `hls.path` can be configured in `apps/backend/src/main/resources/application.properties`.
 `hls.allowed-origins` controls CORS for `/hls/**` (origin patterns).
 `api.allowed-origins` controls CORS for `/api/**` (origin patterns).
+Default CORS is intentionally strict (`localhost/127.0.0.1:5174`).
+If you access frontend from another host/IP, set `API_ALLOWED_ORIGINS` and `HLS_ALLOWED_ORIGINS`.
 `AUTH_JWT_SECRET` and `AUTH_USERS` must be configured before startup.
 `/health` includes basic HLS directory readability/writability info.
 
