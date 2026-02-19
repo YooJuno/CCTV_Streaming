@@ -36,6 +36,34 @@ export interface StreamsHealthResponse {
   generatedAtEpochMs: number;
 }
 
+export interface HlsStorageStatus {
+  path: string;
+  exists: boolean;
+  readable: boolean;
+  writable: boolean;
+  manifestCount: number;
+  segmentCount: number;
+}
+
+export interface StreamHealthSummary {
+  total: number;
+  live: number;
+  starting: number;
+  stale: number;
+  offline: number;
+  error: number;
+  reasons: Record<string, number>;
+}
+
+export interface SystemHealthResponse {
+  generatedAtEpochMs: number;
+  username: string;
+  hlsStorage: HlsStorageStatus;
+  streams: StreamHealthSummary;
+  streamDetails: StreamHealth[];
+  recommendations: string[];
+}
+
 export interface AuthSession {
   username: string;
   displayName: string;
