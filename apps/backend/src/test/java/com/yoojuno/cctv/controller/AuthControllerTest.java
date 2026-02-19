@@ -14,7 +14,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "auth.jwt.secret=test-jwt-secret-should-be-32-bytes-minimum",
+        "auth.users=admin:{plain}admin123:*;viewer:{plain}viewer123:mystream"
+})
 @AutoConfigureMockMvc
 class AuthControllerTest {
 
