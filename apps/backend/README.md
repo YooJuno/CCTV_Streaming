@@ -10,10 +10,14 @@ Provides cookie-based JWT auth, stream authorization, health checks, and HLS sta
 - Current user: `GET /api/auth/me`
 - Authorized streams: `GET /api/streams`
 - Stream health: `GET /api/streams/health`
+- System health: `GET /api/system/health`
 - HLS: `/hls/{streamId}.m3u8` (auth cookie required)
 
 `/api/streams/health`는 각 스트림마다 `state(LIVE/STARTING/STALE/OFFLINE/ERROR)`와
 `reason` 코드를 함께 반환해 장애 원인 분류에 바로 사용할 수 있습니다.
+
+`/api/system/health`는 스트림 헬스에 더해 HLS 디렉터리 상태(읽기/쓰기/파일 개수)와
+권장 조치(recommendations)를 함께 반환합니다.
 
 `hls.path` can be configured in `apps/backend/src/main/resources/application.properties`.
 `hls.allowed-origins` controls CORS for `/hls/**` (origin patterns).
