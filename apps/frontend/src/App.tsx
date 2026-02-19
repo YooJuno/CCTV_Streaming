@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchMe, fetchStreamHealth, fetchStreams, login, logout } from "./api/client";
+import { fetchMe, fetchStreamHealth, fetchStreams, fetchSystemHealth, login, logout } from "./api/client";
 import LoginForm from "./components/LoginForm";
 import StreamCard from "./components/StreamCard";
-import type { AuthSession, StreamHealth, StreamInfo } from "./types";
+import type { AuthSession, HlsStorageStatus, StreamHealth, StreamInfo } from "./types";
 
 const HTTP_UNAUTHORIZED_PREFIX = "HTTP 401";
 const DEFAULT_HEALTH_POLL_MS = 4000;
@@ -24,6 +24,8 @@ export default function App() {
   const [streamsError, setStreamsError] = useState<string | null>(null);
   const [healthWarning, setHealthWarning] = useState<string | null>(null);
   const [healthPollMs, setHealthPollMs] = useState<number>(DEFAULT_HEALTH_POLL_MS);
+  const [systemRecommendations, setSystemRecommendations] = useState<string[]>([]);
+  const [hlsStorage, setHlsStorage] = useState<HlsStorageStatus | null>(null);
   const skipNextAutoFetchRef = useRef(false);
   const healthPollMsRef = useRef(DEFAULT_HEALTH_POLL_MS);
 
@@ -68,6 +70,8 @@ export default function App() {
     setStreamsError(null);
     setHealthWarning(null);
     setHealthPollMs(DEFAULT_HEALTH_POLL_MS);
+    setSystemRecommendations([]);
+    setHlsStorage(null);
     healthPollMsRef.current = DEFAULT_HEALTH_POLL_MS;
     setAuthError("Session expired. Please sign in again.");
   }
@@ -116,6 +120,8 @@ export default function App() {
     setStreamsError(null);
     setHealthWarning(null);
     setHealthPollMs(DEFAULT_HEALTH_POLL_MS);
+    setSystemRecommendations([]);
+    setHlsStorage(null);
     healthPollMsRef.current = DEFAULT_HEALTH_POLL_MS;
   }
 
@@ -165,6 +171,8 @@ export default function App() {
       setStreamHealthById({});
       setLiveThresholdSeconds(0);
       setHealthWarning(null);
+      setSystemRecommendations([]);
+      setHlsStorage(null);
       return;
     }
 
@@ -174,7 +182,7 @@ export default function App() {
 
     const fetchHealth = async () => {
       try {
-        const response = await fetchStreamHealth();
+        const [response, systemHealth] = await Promise.all([fetchStreamHealth(), fetchSystemHealth()]);
         if (cancelled) {
           return;
         }
@@ -187,6 +195,8 @@ export default function App() {
         const nextPollMs = Math.max(1000, response.recommendedPollMs || DEFAULT_HEALTH_POLL_MS);
         setHealthPollMs(nextPollMs);
         healthPollMsRef.current = nextPollMs;
+        setSystemRecommendations(systemHealth.recommendations ?? []);
+        setHlsStorage(systemHealth.hlsStorage ?? null);
         setHealthWarning(null);
         consecutiveFailures = 0;
       } catch (error: unknown) {
@@ -323,10 +333,29 @@ export default function App() {
               <strong>{healthSummary.offline}</strong>
               <p>{healthSummary.checking > 0 ? `${healthSummary.checking} checking` : "No pending checks"}</p>
             </article>
+            <article className="overview-card storage">
+              <span className="overview-label">HLS Storage</span>
+              <strong>{hlsStorage && hlsStorage.exists && hlsStorage.writable ? "OK" : "CHECK"}</strong>
+              <p>
+                {hlsStorage
+                  ? `${hlsStorage.manifestCount} manifests, ${hlsStorage.segmentCount} segments`
+                  : "Waiting for backend health details"}
+              </p>
+            </article>
           </section>
 
           {streamsError ? <p className="error-text">{streamsError}</p> : null}
           {healthWarning ? <p className="warning-text">{healthWarning}</p> : null}
+          {systemRecommendations.length > 0 ? (
+            <section className="system-recommendations">
+              <strong>System guidance</strong>
+              <ul>
+                {systemRecommendations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           {loadingStreams ? <p className="loading-text">Loading streams...</p> : null}
 
