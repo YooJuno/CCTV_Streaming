@@ -43,13 +43,22 @@ pio --version
 
 ### 3) Wi-Fi 설정
 
-`apps/cctv/device/platformio.ini`에서 설정:
+권장 방식(자격증명 파일 분리):
 
-```ini
-build_flags =
-  -DWIFI_SSID=\"YOUR_WIFI_SSID\"
-  -DWIFI_PASSWORD=\"YOUR_WIFI_PASSWORD\"
+```bash
+cd /home/juno/Workspace/CCTV_Streaming/apps/cctv/device
+cp wifi_secrets.h.example wifi_secrets.h
 ```
+
+`wifi_secrets.h`에 실제 값을 넣고 빌드하세요. 이 파일은 git에 올라가지 않습니다.
+
+```cpp
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+```
+
+대안(기존 방식): `platformio.ini`의 `build_flags`를 직접 수정해도 됩니다.
+문자열은 반드시 이스케이프된 큰따옴표(`\"`)를 사용하세요.
 
 ### 4) 빌드
 
@@ -127,6 +136,9 @@ MJPEG_URL=http://<device-ip>:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls
   - `dialout` 그룹 권한 누락입니다. 위 권한 설정 섹션 수행 후 재시도.
 - `Could not connect` 또는 타임아웃
   - 플래시 모드(IO0/GND + reset)로 진입했는지 확인.
+- `'WIFI_SSID' was not declared in this scope`
+  - `platformio.ini` 사용 시 따옴표가 빠진 경우입니다.
+  - 예: `-DWIFI_SSID=\"JUNO_HOME_5G\"`, `-DWIFI_PASSWORD=\"your_password\"`
 - `MJPEG_URL is not configured`
   - `scripts/mjpeg_to_hls.sh` 실행 시 `MJPEG_URL=http://<device-ip>:81/stream`를 명시.
 
