@@ -76,6 +76,37 @@ npm --prefix apps/frontend run dev
 - HLS 매니페스트: `http://localhost:8081/hls/mystream.m3u8`
 - 헬스체크: `http://localhost:8081/health`
 - 스트림 상태 API: `http://localhost:8081/api/streams/health`
+- 통합 헬스 API: `http://localhost:8081/api/system/health`
+
+## 통합 실행 스크립트
+
+개별 명령 대신 아래 스크립트로 실행/종료를 일원화할 수 있습니다.
+
+```bash
+# 백엔드 + 프론트
+./scripts/dev-up.sh
+
+# 백엔드 + 프론트 + 더미 스트림(video.mp4 기반)
+./scripts/dev-up.sh --with-dummy
+```
+
+상태 확인/종료:
+
+```bash
+./scripts/dev-status.sh
+./scripts/dev-down.sh
+```
+
+PID/로그:
+
+- PID: `.run/pids`
+- 로그: `.run/logs`
+
+간단 E2E 스모크 테스트:
+
+```bash
+./scripts/e2e_smoke_dummy.sh
+```
 
 ## 로그인 계정 (기본)
 
@@ -106,3 +137,15 @@ cp apps/cctv/device/wifi_secrets.h.example apps/cctv/device/wifi_secrets.h
 
 추가로 입력 MJPEG URL 사전 프로브를 수행해(기본 `SOURCE_PROBE_ENABLED=true`)
 소스가 죽은 상태에서 ffmpeg 프로세스를 무의미하게 반복 기동하지 않도록 되어 있습니다.
+
+## systemd(user) 운영
+
+`deploy/systemd` 템플릿과 설치 스크립트를 제공합니다.
+
+```bash
+./scripts/install_systemd_user_services.sh --enable --start
+```
+
+관련 문서:
+
+- `deploy/systemd/README.md`
