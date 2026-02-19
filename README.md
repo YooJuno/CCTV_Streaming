@@ -123,6 +123,11 @@ PID/로그:
 - 카메라 스트림 확인: `http://<device-ip>:81/stream`
 - HLS 파일 생성 확인: `ls apps/backend/hls`
 - `mystream.m3u8`가 없으면 웹 재생이 불가합니다.
+- 버퍼링/지연이 크면 GOP를 세그먼트 길이에 맞춰 실행:
+
+```bash
+FRAMERATE=15 KEYINT=15 HLS_TIME=1 HLS_LIST_SIZE=4 ./scripts/dev-up.sh --with-dummy
+```
 
 ESP32-CAM Wi-Fi 자격증명은 저장소 파일 대신 아래처럼 로컬 파일 사용 권장:
 

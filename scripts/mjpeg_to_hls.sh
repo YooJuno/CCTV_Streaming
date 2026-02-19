@@ -10,7 +10,10 @@ MJPEG_URL="${MJPEG_URL:-http://YOUR_DEVICE_IP:81/stream}"
 STREAM_ID="${STREAM_ID:-mystream}"
 HLS_DIR="${HLS_DIR:-$ROOT_DIR/apps/backend/hls}"
 FRAMERATE="${FRAMERATE:-15}"
-KEYINT="${KEYINT:-30}"
+# Keep keyframe interval aligned with output fps by default.
+# This avoids unintended long HLS segment durations (and extra latency)
+# when HLS_TIME is configured around 1s.
+KEYINT="${KEYINT:-$FRAMERATE}"
 HLS_TIME="${HLS_TIME:-1}"
 HLS_LIST_SIZE="${HLS_LIST_SIZE:-6}"
 HLS_DELETE="${HLS_DELETE:-true}"
