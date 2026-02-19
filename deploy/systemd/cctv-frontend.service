@@ -1,0 +1,14 @@
+[Unit]
+Description=CCTV Streaming Frontend (Vite)
+After=network.target cctv-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory={{PROJECT_ROOT}}/apps/frontend
+EnvironmentFile=-%h/.config/cctv-streaming/frontend.env
+ExecStart=/usr/bin/env bash -lc 'cd {{PROJECT_ROOT}}/apps/frontend && npm run dev -- --host 0.0.0.0 --port 5174'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

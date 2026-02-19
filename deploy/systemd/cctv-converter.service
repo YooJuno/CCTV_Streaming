@@ -1,0 +1,14 @@
+[Unit]
+Description=CCTV Streaming Converter (MJPEG -> HLS)
+After=network.target cctv-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory={{PROJECT_ROOT}}
+EnvironmentFile=-%h/.config/cctv-streaming/converter.env
+ExecStart=/usr/bin/env bash -lc 'cd {{PROJECT_ROOT}} && ./scripts/mjpeg_to_hls.sh'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
