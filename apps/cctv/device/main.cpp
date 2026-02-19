@@ -7,6 +7,10 @@
 #include "freertos/semphr.h"
 #include <cstring>
 
+#if __has_include("wifi_secrets.h")
+#include "wifi_secrets.h"
+#endif
+
 #ifndef WIFI_SSID
 #define WIFI_SSID "YOUR_WIFI_SSID"
 #endif
