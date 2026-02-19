@@ -55,13 +55,18 @@ probe_source() {
 
   local probe_file
   probe_file="$(mktemp)"
-  if curl -fsS --connect-timeout "$SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS" --max-time "$SOURCE_PROBE_MAX_TIME_SECONDS" \
-    --range 0-4096 "$MJPEG_URL" -o "$probe_file"; then
+
+  set +e
+  curl -fsS --connect-timeout "$SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS" --max-time "$SOURCE_PROBE_MAX_TIME_SECONDS" \
+    --range 0-4096 "$MJPEG_URL" -o "$probe_file"
+  local curl_exit=$?
+  set -e
+
+  if [ "$curl_exit" -eq 0 ]; then
     rm -f "$probe_file"
     return 0
   fi
 
-  local curl_exit=$?
   if [ "$curl_exit" -eq 28 ] && [ -s "$probe_file" ]; then
     rm -f "$probe_file"
     return 0
