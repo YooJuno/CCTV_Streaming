@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-label="CCTV Streaming system architecture diagram">
+  <defs>
+    <style>
+      .title { font: 700 34px 'Segoe UI', Arial, sans-serif; fill: #12263a; }
+      .subtitle { font: 500 18px 'Segoe UI', Arial, sans-serif; fill: #3a4d63; }
+      .node-title { font: 700 22px 'Segoe UI', Arial, sans-serif; fill: #0f2238; }
+      .node-body { font: 500 16px 'Segoe UI', Arial, sans-serif; fill: #2f435a; }
+      .edge-label { font: 600 15px 'Segoe UI', Arial, sans-serif; fill: #1f3f64; }
+      .port { font: 700 15px 'Segoe UI', Arial, sans-serif; fill: #0e5e63; }
+      .box { stroke: #8fa6be; stroke-width: 2.2; rx: 18; ry: 18; }
+      .soft { fill: #f4f8ff; }
+      .mid { fill: #eef7f4; }
+      .warm { fill: #fff6ea; }
+      .cool { fill: #eef5ff; }
+      .muted { fill: #f8f9fc; }
+      .bg { fill: #ffffff; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3b5f87" />
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2e7d67" />
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="860" class="bg" />
+  <text x="64" y="68" class="title">CCTV_Streaming System Architecture</text>
+  <text x="64" y="100" class="subtitle">ESP32-CAM(MJPEG) -> FFmpeg(HLS) -> Spring Boot(Auth + HLS Serve) -> React(hls.js)</text>
+
+  <!-- Browser -->
+  <rect x="84" y="180" width="300" height="164" class="box cool" />
+  <text x="112" y="228" class="node-title">User Browser</text>
+  <text x="112" y="258" class="node-body">React + hls.js Dashboard</text>
+  <text x="112" y="286" class="port">Port: 5174</text>
+  <text x="112" y="314" class="node-body">/api/* + /hls/* via Vite proxy</text>
+
+  <!-- Backend -->
+  <rect x="526" y="162" width="356" height="198" class="box mid" />
+  <text x="556" y="214" class="node-title">Spring Boot Backend</text>
+  <text x="556" y="244" class="node-body">AuthController, StreamController</text>
+  <text x="556" y="272" class="node-body">JwtAuthenticationFilter</text>
+  <text x="556" y="300" class="node-body">StreamAccessFilter</text>
+  <text x="556" y="330" class="port">Port: 8081</text>
+
+  <!-- HLS storage -->
+  <rect x="1004" y="402" width="300" height="164" class="box warm" />
+  <text x="1034" y="450" class="node-title">HLS Storage</text>
+  <text x="1034" y="480" class="node-body">apps/backend/hls</text>
+  <text x="1034" y="508" class="node-body">mystream.m3u8</text>
+  <text x="1034" y="536" class="node-body">mystream_*.ts</text>
+
+  <!-- FFmpeg -->
+  <rect x="512" y="492" width="384" height="188" class="box soft" />
+  <text x="544" y="542" class="node-title">FFmpeg Converter</text>
+  <text x="544" y="572" class="node-body">scripts/mjpeg_to_hls.sh</text>
+  <text x="544" y="600" class="node-body">MJPEG input -> HLS output</text>
+  <text x="544" y="628" class="node-body">auto retry / stall recovery</text>
+
+  <!-- ESP32 -->
+  <rect x="84" y="516" width="300" height="160" class="box muted" />
+  <text x="114" y="562" class="node-title">ESP32-CAM Device</text>
+  <text x="114" y="592" class="node-body">Firmware HTTP server</text>
+  <text x="114" y="620" class="port">MJPEG: :81/stream</text>
+  <text x="114" y="648" class="node-body">Health: /health</text>
+
+  <!-- Edges -->
+  <!-- Browser -> Backend login/api -->
+  <path d="M384 226 C438 226, 470 226, 526 226" fill="none" stroke="#3b5f87" stroke-width="3" marker-end="url(#arrow)" />
+  <text x="420" y="208" class="edge-label">1) Login / API calls</text>
+
+  <!-- Browser -> Backend hls playback -->
+  <path d="M384 296 C438 316, 466 326, 526 334" fill="none" stroke="#3b5f87" stroke-width="3" marker-end="url(#arrow)" />
+  <text x="396" y="350" class="edge-label">2) /hls/mystream.m3u8 request</text>
+
+  <!-- Backend -> HLS -->
+  <path d="M882 308 C954 342, 978 376, 1004 434" fill="none" stroke="#3b5f87" stroke-width="3" marker-end="url(#arrow)" />
+  <text x="892" y="392" class="edge-label">3) Read/serve HLS files</text>
+
+  <!-- Backend self-loop -->
+  <path d="M748 160 C782 116, 858 116, 884 162" fill="none" stroke="#406b4c" stroke-width="3" marker-end="url(#arrowGreen)" />
+  <text x="742" y="118" class="edge-label">4) JWT auth + stream authorization</text>
+
+  <!-- FFmpeg -> HLS -->
+  <path d="M896 576 C944 566, 968 548, 1004 528" fill="none" stroke="#2e7d67" stroke-width="3" marker-end="url(#arrowGreen)" />
+  <text x="900" y="606" class="edge-label">5) Write .m3u8 / .ts</text>
+
+  <!-- ESP32 -> FFmpeg -->
+  <path d="M384 596 C430 596, 470 596, 512 596" fill="none" stroke="#2e7d67" stroke-width="3" marker-end="url(#arrowGreen)" />
+  <text x="404" y="574" class="edge-label">6) MJPEG input stream</text>
+
+  <!-- Footer -->
+  <rect x="64" y="738" width="1272" height="84" rx="14" ry="14" fill="#f6f9fc" stroke="#d7e1ec" stroke-width="1.6" />
+  <text x="88" y="772" class="node-body">Playback dependency chain: ESP32 reachable -> FFmpeg running -> HLS files created -> Backend serves /hls -> Browser hls.js plays video</text>
+  <text x="88" y="802" class="node-body">If /hls/mystream.m3u8 = 404, check converter process and apps/backend/hls file generation first.</text>
+</svg>
