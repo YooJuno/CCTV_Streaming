@@ -4,17 +4,21 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 @Component
 public class StreamAccessFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(StreamAccessFilter.class);
     private static final Pattern SEGMENT_SUFFIX = Pattern.compile("_(\\d+)$");
 
     @Override
@@ -42,11 +46,13 @@ public class StreamAccessFilter extends OncePerRequestFilter {
         }
 
         Set<String> allowed = user.allowedStreams();
-        if (allowed.contains("*") || allowed.contains(streamId)) {
+        if (isAllowedStreamRequest(path, streamId, allowed)) {
             filterChain.doFilter(request, response);
             return;
         }
 
+        log.warn("Denied HLS access. user={}, path={}, streamId={}, allowed={}",
+                user.username(), path, streamId, allowed);
         writeJsonError(response, HttpServletResponse.SC_FORBIDDEN, "stream access denied");
     }
 
@@ -67,7 +73,33 @@ public class StreamAccessFilter extends OncePerRequestFilter {
         if (dotIndex > 0) {
             fileName = fileName.substring(0, dotIndex);
         }
-        return SEGMENT_SUFFIX.matcher(fileName).replaceFirst("");
+        return fileName;
+    }
+
+    private static boolean isAllowedStreamRequest(String path, String streamId, Set<String> allowed) {
+        if (allowed.contains("*") || allowed.contains(streamId)) {
+            return true;
+        }
+        if (!isSegmentRequest(path)) {
+            return false;
+        }
+        String normalized = SEGMENT_SUFFIX.matcher(streamId).replaceFirst("");
+        return !normalized.equals(streamId) && allowed.contains(normalized);
+    }
+
+    private static boolean isSegmentRequest(String path) {
+        if (path == null) {
+            return false;
+        }
+        int dotIndex = path.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex + 1 >= path.length()) {
+            return false;
+        }
+        String extension = path.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+        return switch (extension) {
+            case "ts", "m4s", "mp4", "aac", "vtt" -> true;
+            default -> false;
+        };
     }
 
     private static void writeJsonError(HttpServletResponse response, int status, String message) throws IOException {
