@@ -104,7 +104,7 @@ fi
 if [[ "$MJPEG_URL" == *"YOUR_DEVICE_IP"* ]] || [[ "$MJPEG_URL" == *"<device-ip>"* ]]; then
   log "MJPEG_URL is not configured."
   log "Example:"
-  log "  MJPEG_URL=http://192.168.0.42:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls.sh"
+  log "  MJPEG_URL=http://192.168.219.106:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls.sh"
   exit 1
 fi
 
