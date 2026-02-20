@@ -18,7 +18,7 @@ Usage: ./scripts/dev-up.sh [options]
 
 Options:
   --with-converter      Start MJPEG -> HLS converter (requires MJPEG_URL unless --with-dummy)
-  --with-dummy          Start dummy CCTV source + converter (uses docs/video.mp4)
+  --with-dummy          Start dummy CCTV source + converter (uses docs/video.mp4 by default)
   --mjpeg-url <url>     Override MJPEG source URL
   --stream-id <id>      Stream ID (default: mystream)
   --frontend-host <ip>  Frontend bind host (default: 0.0.0.0)
@@ -90,6 +90,82 @@ AUTH_USERS_VALUE="${AUTH_USERS:-$DEFAULT_AUTH_USERS}"
 API_ALLOWED_ORIGINS_VALUE="${API_ALLOWED_ORIGINS:-http://localhost:5174,http://127.0.0.1:5174}"
 HLS_ALLOWED_ORIGINS_VALUE="${HLS_ALLOWED_ORIGINS:-$API_ALLOWED_ORIGINS_VALUE}"
 VITE_PROXY_TARGET_VALUE="${VITE_PROXY_TARGET:-http://127.0.0.1:8081}"
+
+append_origin_if_missing() {
+  local origin_list="$1"
+  local origin="$2"
+  case ",$origin_list," in
+    *,"$origin",*) echo "$origin_list" ;;
+    *) echo "${origin_list},${origin}" ;;
+  esac
+}
+
+is_valid_ipv4() {
+  local ip="$1"
+  local IFS='.'
+  local octets=()
+  read -r -a octets <<< "$ip"
+  if [ "${#octets[@]}" -ne 4 ]; then
+    return 1
+  fi
+  for octet in "${octets[@]}"; do
+    if ! [[ "$octet" =~ ^[0-9]+$ ]]; then
+      return 1
+    fi
+    if [ "$octet" -lt 0 ] || [ "$octet" -gt 255 ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+detect_public_ip() {
+  if [ -n "${PUBLIC_IP:-}" ] && is_valid_ipv4 "$PUBLIC_IP"; then
+    echo "$PUBLIC_IP"
+    return 0
+  fi
+
+  local ip_services=(
+    "https://api.ipify.org"
+    "https://checkip.amazonaws.com"
+    "https://ifconfig.me/ip"
+  )
+  local candidate=""
+  local service=""
+
+  for service in "${ip_services[@]}"; do
+    candidate="$(curl -fsS --connect-timeout 1 --max-time 2 "$service" 2>/dev/null | tr -d '\r\n' || true)"
+    if is_valid_ipv4 "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if [ -z "${API_ALLOWED_ORIGINS:-}" ]; then
+  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
+  if [ -z "$LAN_IP" ]; then
+    LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  if [ -n "$LAN_IP" ] && [ "$LAN_IP" != "127.0.0.1" ]; then
+    API_ALLOWED_ORIGINS_VALUE="$(append_origin_if_missing "$API_ALLOWED_ORIGINS_VALUE" "http://${LAN_IP}:5174")"
+  fi
+
+  PUBLIC_IP_VALUE="$(detect_public_ip || true)"
+  if [ -n "$PUBLIC_IP_VALUE" ]; then
+    API_ALLOWED_ORIGINS_VALUE="$(append_origin_if_missing "$API_ALLOWED_ORIGINS_VALUE" "http://${PUBLIC_IP_VALUE}:5174")"
+    API_ALLOWED_ORIGINS_VALUE="$(append_origin_if_missing "$API_ALLOWED_ORIGINS_VALUE" "https://${PUBLIC_IP_VALUE}:5174")"
+  fi
+fi
+
+if [ -z "${HLS_ALLOWED_ORIGINS:-}" ]; then
+  HLS_ALLOWED_ORIGINS_VALUE="$API_ALLOWED_ORIGINS_VALUE"
+fi
+
+log "API_ALLOWED_ORIGINS resolved: $API_ALLOWED_ORIGINS_VALUE"
+log "HLS_ALLOWED_ORIGINS resolved: $HLS_ALLOWED_ORIGINS_VALUE"
 
 if is_port_listening 8081; then
   log "Port 8081 already in use. Skipping backend start."

@@ -9,21 +9,24 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MJPEG_URL="${MJPEG_URL:-http://YOUR_DEVICE_IP:81/stream}"
 STREAM_ID="${STREAM_ID:-mystream}"
 HLS_DIR="${HLS_DIR:-$ROOT_DIR/apps/backend/hls}"
-FRAMERATE="${FRAMERATE:-15}"
+# ESP32-CAM MJPEG streams can fluctuate heavily in delivered FPS.
+# Keep defaults conservative to prioritize smooth playback over peak quality.
+INPUT_FRAMERATE="${INPUT_FRAMERATE:-12}"
+FRAMERATE="${FRAMERATE:-8}"
 # Keep keyframe interval aligned with output fps by default.
 # This avoids unintended long HLS segment durations (and extra latency)
 # when HLS_TIME is configured around 1s.
 KEYINT="${KEYINT:-$FRAMERATE}"
 HLS_TIME="${HLS_TIME:-1}"
-HLS_LIST_SIZE="${HLS_LIST_SIZE:-6}"
+HLS_LIST_SIZE="${HLS_LIST_SIZE:-4}"
 HLS_DELETE="${HLS_DELETE:-true}"
 VIDEO_CODEC="${VIDEO_CODEC:-libx264}"
-VIDEO_PRESET="${VIDEO_PRESET:-veryfast}"
+VIDEO_PRESET="${VIDEO_PRESET:-ultrafast}"
 VIDEO_TUNE="${VIDEO_TUNE:-zerolatency}"
 PIX_FMT="${PIX_FMT:-yuv420p}"
 RETRY_DELAY_SECONDS="${RETRY_DELAY_SECONDS:-1}"
 MAX_RETRY_DELAY_SECONDS="${MAX_RETRY_DELAY_SECONDS:-15}"
-STALL_TIMEOUT_SECONDS="${STALL_TIMEOUT_SECONDS:-20}"
+STALL_TIMEOUT_SECONDS="${STALL_TIMEOUT_SECONDS:-12}"
 SOURCE_PROBE_ENABLED="${SOURCE_PROBE_ENABLED:-true}"
 SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS="${SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS:-2}"
 SOURCE_PROBE_MAX_TIME_SECONDS="${SOURCE_PROBE_MAX_TIME_SECONDS:-4}"
@@ -89,12 +92,12 @@ fi
 if [[ "$FFMPEG_BIN" == */* ]]; then
   if [ ! -x "$FFMPEG_BIN" ]; then
     echo "ffmpeg binary not executable: $FFMPEG_BIN"
-    echo "Run ./scripts/install_local_ffmpeg.sh or install ffmpeg in PATH."
+    echo "Install ffmpeg in PATH or set FFMPEG_BIN to a valid binary path."
     exit 1
   fi
 elif ! command -v "$FFMPEG_BIN" >/dev/null 2>&1; then
   echo "ffmpeg command not found: $FFMPEG_BIN"
-  echo "Run ./scripts/install_local_ffmpeg.sh or install ffmpeg in PATH."
+  echo "Install ffmpeg in PATH or set FFMPEG_BIN to a valid binary path."
   exit 1
 fi
 
@@ -131,6 +134,7 @@ find "$HLS_DIR" -maxdepth 1 -type f \( -name "${STREAM_ID}.m3u8" -o -name "${STR
 log "MJPEG_URL=$MJPEG_URL"
 log "STREAM_ID=$STREAM_ID"
 log "HLS_DIR=$HLS_DIR"
+log "INPUT_FRAMERATE=$INPUT_FRAMERATE"
 log "FRAMERATE=$FRAMERATE"
 log "KEYINT=$KEYINT"
 log "HLS_TIME=$HLS_TIME"
@@ -172,6 +176,7 @@ while true; do
   "$FFMPEG_BIN" -hide_banner -loglevel warning \
     -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 \
     -rw_timeout 5000000 \
+    -r "$INPUT_FRAMERATE" \
     -f mjpeg -i "$MJPEG_URL" \
     -an \
     -r "$FRAMERATE" \
