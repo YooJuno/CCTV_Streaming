@@ -14,6 +14,9 @@ const RETRY_BASE_DELAY_MS = 500;
 const MAX_FATAL_RELOADS = 6;
 const FATAL_RELOAD_BASE_DELAY_MS = 1500;
 const MAX_MEDIA_RECOVERIES = 3;
+const STALL_WATCHDOG_INTERVAL_MS = 1000;
+const STALL_WATCHDOG_TRIGGER_MS = 8000;
+const MAX_STALL_RECOVERY_ATTEMPTS = 5;
 
 const INITIAL_METRICS: PlaybackMetrics = {
   latencySec: null,
@@ -45,11 +48,15 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     let hls: HlsType | null = null;
     let retryTimer: number | null = null;
     let statsTimer: number | null = null;
+    let stallWatchdogTimer: number | null = null;
     let retryCount = 0;
     let notFoundRetryCount = 0;
     let stallCount = 0;
     let fatalReloadCount = 0;
     let mediaRecoveryCount = 0;
+    let stallRecoveryAttempts = 0;
+    let lastVideoTime = 0;
+    let lastProgressAtMs = Date.now();
 
     setStatus("loading");
     setErrorMessage(null);
@@ -79,12 +86,19 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       }));
     };
 
+    const markProgress = () => {
+      lastVideoTime = video.currentTime;
+      lastProgressAtMs = Date.now();
+      stallRecoveryAttempts = 0;
+    };
+
     const markWaiting = () => {
       stallCount += 1;
       setStatus("buffering");
       updateMetrics();
     };
     const markPlaying = () => {
+      markProgress();
       setStatus("playing");
       updateMetrics();
     };
@@ -131,6 +145,8 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
           hls.destroy();
           hls = null;
         }
+        stallRecoveryAttempts = 0;
+        markProgress();
         void initHls();
       }, delayMs);
     };
@@ -139,6 +155,77 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     video.addEventListener("playing", markPlaying);
     video.addEventListener("error", markVideoError);
     statsTimer = window.setInterval(updateMetrics, 1000);
+    stallWatchdogTimer = window.setInterval(() => {
+      if (disposed) {
+        return;
+      }
+      if (video.paused || video.ended) {
+        markProgress();
+        return;
+      }
+
+      const currentTime = video.currentTime;
+      if (!Number.isFinite(currentTime)) {
+        return;
+      }
+
+      if (Math.abs(currentTime - lastVideoTime) > 0.05) {
+        markProgress();
+        return;
+      }
+
+      if (Date.now() - lastProgressAtMs < STALL_WATCHDOG_TRIGGER_MS) {
+        return;
+      }
+
+      stallCount += 1;
+      updateMetrics();
+      stallRecoveryAttempts += 1;
+
+      const bufferedSec = getBufferedSeconds(video);
+      if (hls && stallRecoveryAttempts <= MAX_STALL_RECOVERY_ATTEMPTS) {
+        setStatus("network retry");
+        setErrorMessage(
+          `Playback stalled. Recovering... (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+        );
+        if (bufferedSec < 0.2) {
+          hls.startLoad();
+        } else {
+          hls.recoverMediaError();
+        }
+        void video.play().catch(() => {});
+        lastProgressAtMs = Date.now();
+        return;
+      }
+
+      if (!hls && stallRecoveryAttempts <= MAX_STALL_RECOVERY_ATTEMPTS) {
+        setStatus("network retry");
+        setErrorMessage(
+          `Playback stalled. Reloading native HLS... (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+        );
+        const src = manifestUrl;
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        video.src = src;
+        void video.play().catch(() => setStatus("ready"));
+        lastProgressAtMs = Date.now();
+        return;
+      }
+
+      if (hls && fatalReloadCount < MAX_FATAL_RELOADS) {
+        fatalReloadCount += 1;
+        const delayMs = Math.min(15000, FATAL_RELOAD_BASE_DELAY_MS * fatalReloadCount);
+        scheduleFullReload(
+          delayMs,
+          `Playback repeatedly stalled. Reinitializing player (${fatalReloadCount}/${MAX_FATAL_RELOADS})...`,
+        );
+        return;
+      }
+
+      setStatus("fatal error");
+      setErrorMessage("Playback repeatedly stalled. Please restart stream source.");
+    }, STALL_WATCHDOG_INTERVAL_MS);
 
     const initHls = async () => {
       const module = await import("hls.js");
@@ -160,9 +247,12 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       }
 
       hls = new ctor({
-        lowLatencyMode: true,
-        backBufferLength: 90,
-        liveSyncDurationCount: 3,
+        lowLatencyMode: false,
+        backBufferLength: 30,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 5,
+        maxBufferLength: 12,
+        maxMaxBufferLength: 24,
         maxLiveSyncPlaybackRate: 1.5,
         xhrSetup: (xhr) => {
           xhr.withCredentials = true;
@@ -184,6 +274,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
         mediaRecoveryCount = 0;
         setStatus("ready");
         setErrorMessage(null);
+        markProgress();
         tryPlay();
         updateMetrics();
       });
@@ -267,6 +358,9 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       clearRetryTimer();
       if (statsTimer) {
         window.clearInterval(statsTimer);
+      }
+      if (stallWatchdogTimer) {
+        window.clearInterval(stallWatchdogTimer);
       }
       if (hls) {
         hls.destroy();

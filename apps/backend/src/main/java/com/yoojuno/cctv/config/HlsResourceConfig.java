@@ -13,7 +13,7 @@ import java.nio.file.Path;
 public class HlsResourceConfig implements WebMvcConfigurer {
     @Value("${hls.path:./hls}")
     private String hlsPath;
-    @Value("${hls.allowed-origins:http://localhost:*,http://127.0.0.1:*,http://192.168.*.*:*,http://10.*.*.*:*,http://172.*.*.*:*}")
+    @Value("${hls.allowed-origins:http://localhost:5174,http://127.0.0.1:5174,https://localhost:5174,https://127.0.0.1:5174}")
     private String[] hlsAllowedOrigins;
     @Value("${hls.allowed-methods:GET,HEAD,OPTIONS}")
     private String[] hlsAllowedMethods;

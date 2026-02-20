@@ -19,20 +19,8 @@ ESP32-CAM(MJPEG) -> ffmpeg(HLS) -> Spring Boot(/hls + /api) -> React(hls.js)
 
 - Java 17+
 - Node.js 18+
-- ffmpeg
+- ffmpeg (system PATH)
 - PlatformIO (ESP32 업로드 시)
-
-`ffmpeg`가 시스템에 없다면 로컬 설치:
-
-```bash
-./scripts/install_local_ffmpeg.sh
-```
-
-무결성 검증을 하려면:
-
-```bash
-FFMPEG_ARCHIVE_SHA256=<sha256> ./scripts/install_local_ffmpeg.sh
-```
 
 ## 실행 순서
 
@@ -43,6 +31,10 @@ FFMPEG_ARCHIVE_SHA256=<sha256> ./scripts/install_local_ffmpeg.sh
 ```bash
 export AUTH_JWT_SECRET='replace-with-long-random-secret-32bytes-min'
 export AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
+# Optional: if frontend origin is not localhost:5174, allow it explicitly.
+# Example: http://122.45.250.216:5174
+export API_ALLOWED_ORIGINS='http://localhost:5174,http://127.0.0.1:5174'
+export HLS_ALLOWED_ORIGINS="$API_ALLOWED_ORIGINS"
 cd apps/backend
 ./gradlew bootRun
 ```
@@ -72,6 +64,34 @@ npm --prefix apps/frontend run dev
 - HLS 매니페스트: `http://localhost:8081/hls/mystream.m3u8`
 - 헬스체크: `http://localhost:8081/health`
 - 스트림 상태 API: `http://localhost:8081/api/streams/health`
+- 통합 헬스 API: `http://localhost:8081/api/system/health`
+
+## 통합 실행 스크립트
+
+개별 명령 대신 아래 스크립트로 실행/종료를 일원화할 수 있습니다.
+
+```bash
+# 백엔드 + 프론트
+./scripts/dev-up.sh
+
+# 백엔드 + 프론트 + 더미 스트림(docs/video.mp4 기반)
+./scripts/dev-up.sh --with-dummy
+
+# 선택: ffmpeg test pattern 기반으로 실행
+SOURCE_MODE=testsrc ./scripts/dev-up.sh --with-dummy
+```
+
+상태 확인/종료:
+
+```bash
+./scripts/dev-status.sh
+./scripts/dev-down.sh
+```
+
+PID/로그:
+
+- PID: `.run/pids`
+- 로그: `.run/logs`
 
 ## 로그인 계정 (기본)
 
@@ -88,6 +108,13 @@ npm --prefix apps/frontend run dev
 - 카메라 스트림 확인: `http://<device-ip>:81/stream`
 - HLS 파일 생성 확인: `ls apps/backend/hls`
 - `mystream.m3u8`가 없으면 웹 재생이 불가합니다.
+- 버퍼링/지연이 크면 GOP를 세그먼트 길이에 맞춰 실행:
+
+```bash
+FRAMERATE=15 KEYINT=15 HLS_TIME=1 HLS_LIST_SIZE=4 ./scripts/dev-up.sh --with-dummy
+```
+
+ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/main.cpp` 상단에서 직접 설정합니다.
 
 ## 운영 팁
 

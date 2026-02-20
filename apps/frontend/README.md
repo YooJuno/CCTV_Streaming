@@ -2,7 +2,7 @@
 
 React 19 + Vite + TypeScript dashboard for authenticated multi-stream HLS playback.
 Authentication uses backend HttpOnly cookie session (`/api/auth/login`).
-UI polls `/api/streams/health` to show LIVE/OFFLINE state.
+UI polls `/api/streams/health` and `/api/system/health` to show LIVE/OFFLINE state and system guidance.
 
 ## Run
 
