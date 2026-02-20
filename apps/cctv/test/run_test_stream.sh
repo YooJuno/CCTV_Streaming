@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts a local dummy MJPEG camera from docs/video.mp4 and pipes it to HLS.
+# Starts a local dummy MJPEG camera (test pattern or video file) and pipes it to HLS.
 
 set -euo pipefail
 
@@ -10,7 +10,9 @@ DUMMY_HOST="${DUMMY_HOST:-127.0.0.1}"
 DUMMY_PORT="${DUMMY_PORT:-18081}"
 STREAM_PATH="${STREAM_PATH:-stream}"
 STREAM_ID="${STREAM_ID:-mystream}"
-VIDEO_FILE="${VIDEO_FILE:-$ROOT_DIR/docs/video.mp4}"
+SOURCE_MODE="${SOURCE_MODE:-auto}"
+VIDEO_FILE="${VIDEO_FILE:-}"
+TESTSRC_SIZE="${TESTSRC_SIZE:-1280x720}"
 STARTUP_DELAY_SECONDS="${STARTUP_DELAY_SECONDS:-1}"
 
 dummy_pid=""
@@ -28,11 +30,13 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-log "Launching dummy camera from video file"
+log "Launching dummy camera"
 HOST="$DUMMY_HOST" \
 PORT="$DUMMY_PORT" \
 STREAM_PATH="$STREAM_PATH" \
+SOURCE_MODE="$SOURCE_MODE" \
 VIDEO_FILE="$VIDEO_FILE" \
+TESTSRC_SIZE="$TESTSRC_SIZE" \
 "$SCRIPT_DIR/dummy_mjpeg_camera.sh" &
 dummy_pid=$!
 

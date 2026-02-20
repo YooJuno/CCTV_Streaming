@@ -1,6 +1,6 @@
 # Dummy CCTV Test Source
 
-`docs/video.mp4`를 ESP32-CAM처럼 MJPEG 스트림으로 송출해서,
+기본 `docs/video.mp4`(없으면 ffmpeg 내장 테스트 패턴)를 ESP32-CAM처럼 MJPEG 스트림으로 송출해서,
 백엔드/HLS 파이프라인을 카메라 없이 테스트하기 위한 도구입니다.
 
 ## Quick Start
@@ -13,7 +13,7 @@
 
 이 스크립트는 다음을 자동으로 수행합니다.
 
-1. `docs/video.mp4`를 MJPEG로 송출 (`http://127.0.0.1:18081/stream`)
+1. 더미 소스를 MJPEG로 송출 (`http://127.0.0.1:18081/stream`)
 2. `scripts/mjpeg_to_hls.sh`를 `STREAM_ID=mystream`으로 실행
 3. `apps/backend/hls`에 HLS 파일 생성
 
@@ -32,7 +32,13 @@
 환경변수로 세부 조정:
 
 ```bash
-DUMMY_PORT=18081 STREAM_ID=mystream VIDEO_FILE=./docs/video.mp4 STARTUP_DELAY_SECONDS=1 ./apps/cctv/test/run_test_stream.sh
+DUMMY_PORT=18081 STREAM_ID=mystream STARTUP_DELAY_SECONDS=1 ./apps/cctv/test/run_test_stream.sh
+
+# test pattern 강제 사용
+SOURCE_MODE=testsrc ./apps/cctv/test/run_test_stream.sh
+
+# 특정 파일 소스로 테스트
+SOURCE_MODE=video VIDEO_FILE=./sample.mp4 ./apps/cctv/test/run_test_stream.sh
 ```
 
 ## Notes
