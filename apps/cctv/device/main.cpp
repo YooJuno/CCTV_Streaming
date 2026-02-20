@@ -7,16 +7,8 @@
 #include "freertos/semphr.h"
 #include <cstring>
 
-#if __has_include("wifi_secrets.h")
-#include "wifi_secrets.h"
-#endif
-
-#ifndef WIFI_SSID
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#endif
-#ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#endif
+#define WIFI_SSID "JUNO_HOME_2.4G"
+#define WIFI_PASSWORD "juno980220@"
 
 const char *WIFI_SSID_VALUE = WIFI_SSID;
 const char *WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
@@ -247,9 +239,7 @@ static void releaseJpegFrame(JpegFrame &frame) {
 static void logWiFiConfigWarning() {
   if (usingPlaceholderCredentials()) {
     Serial.println("[ERROR] WIFI_SSID/WIFI_PASSWORD are placeholders.");
-    Serial.println("Set build_flags in platformio.ini:");
-    Serial.println("  -DWIFI_SSID=\\\"YOUR_WIFI\\\"");
-    Serial.println("  -DWIFI_PASSWORD=\\\"YOUR_PASSWORD\\\"");
+    Serial.println("Set WIFI_SSID/WIFI_PASSWORD in main.cpp.");
   }
 }
 
