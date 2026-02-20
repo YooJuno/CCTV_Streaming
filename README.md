@@ -1,47 +1,125 @@
-# CCTV Streaming Private Project
+# CCTV_Streaming
 
-## 목표
-- **[Front]** 리액트 마스터  
-- **[Back]** 스프링 마스터  
-- **[Embedded]** WebRTC & RTSP 마스터  
-- **[DB]** 최신 SQL 기술(MySQL / PostgreSQL) 마스터  
+ESP32-CAM MJPEG 스트림을 HLS로 변환해 웹에서 재생하는 프로젝트입니다.
 
-## 기능 명세
+현재 동작 경로:
 
-### [ESP32]
-- **ESP32-CAM**으로 실시간 영상 촬영  
-- **FFmpeg / GStreamer**를 이용한 **RTSP 변환 (C++)**  
-- 네트워크 설정 및 **고정 IP 구성**  
-- **자동 재연결 및 상태 모니터링** 기능 구현  
+```text
+ESP32-CAM(MJPEG) -> ffmpeg(HLS) -> Spring Boot(/hls + /api) -> React(hls.js)
+```
 
-### [Back-End]
-- **Spring Boot** 기반 스트리밍 관리 서버  
-- **RTSP → WebRTC 변환 게이트웨이** 연동  
-  - FFmpeg 또는 Janus/mediasoup를 이용한 실시간 변환  
-- **JWT 기반 인증 및 권한 관리 시스템**  
-- **스트림 제어 API**
-  - 시작 / 중지 / 상태 확인 / 스냅샷 요청  
-- **영상 녹화 및 로그 관리** 기능  
-- **카메라 메타데이터 관리**
-  - 이름, URL, 상태, 등록일, 위치 정보  
+## 디렉터리
 
-### [Front-End]
-- **React 기반 CCTV 대시보드**
-  - 전체 카메라 실시간 모니터링  
-  - 개별 영상 재생(저지연 WebRTC 지원)  
-  - 상태 표시 및 연결 알림  
-- **WebRTC / HLS.js** 기반 플레이어 통합  
-- **녹화 영상 및 스냅샷 조회 페이지**
-  - 기간별 / 카메라별 검색  
-- **관리자 기능**
-  - 카메라 등록·삭제, 사용자 권한 관리  
+- `apps/backend`: Spring Boot API, 인증, HLS 정적 서빙
+- `apps/frontend`: React + Vite + TypeScript 대시보드
+- `apps/cctv/device`: ESP32-CAM firmware (MJPEG HTTP)
+- `scripts/mjpeg_to_hls.sh`: MJPEG -> HLS 변환 스크립트
 
-### [Database]
-- **MySQL** 또는 **PostgreSQL** 사용  
-- 주요 테이블  
-  - `users` : 사용자 정보 및 권한  
-  - `cameras` : RTSP / WebRTC 스트림 정보  
-  - `streams` : 실시간 세션 기록  
-  - `recordings` : 저장된 영상 메타데이터  
-  - `logs` : 이벤트 및 오류 로그  
-- 트랜잭션 관리 및 외래키 제약으로 데이터 무결성 확보  
+## 요구사항
+
+- Java 17+
+- Node.js 18+
+- ffmpeg (system PATH)
+- PlatformIO (ESP32 업로드 시)
+
+## 실행 순서
+
+프로젝트 루트(`/home/juno/Workspace/CCTV_Streaming`) 기준:
+
+1) 백엔드 실행
+
+```bash
+export AUTH_JWT_SECRET='replace-with-long-random-secret-32bytes-min'
+export AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
+# Optional: if frontend origin is not localhost:5174, allow it explicitly.
+# Example: http://122.45.250.216:5174
+export API_ALLOWED_ORIGINS='http://localhost:5174,http://127.0.0.1:5174'
+export HLS_ALLOWED_ORIGINS="$API_ALLOWED_ORIGINS"
+cd apps/backend
+./gradlew bootRun
+```
+
+`AUTH_USERS` 포맷: `username:passwordSpec:stream1,stream2`
+
+- `passwordSpec` 권장: `{bcrypt}<hash>`
+- 개발용(임시): `{plain}<password>`
+
+2) MJPEG -> HLS 변환 실행
+
+```bash
+cd ../..
+MJPEG_URL=http://<device-ip>:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls.sh
+```
+
+3) 프론트 실행
+
+```bash
+npm --prefix apps/frontend install
+npm --prefix apps/frontend run dev
+```
+
+4) 접속
+
+- 대시보드: `http://localhost:5174`
+- HLS 매니페스트: `http://localhost:8081/hls/mystream.m3u8`
+- 헬스체크: `http://localhost:8081/health`
+- 스트림 상태 API: `http://localhost:8081/api/streams/health`
+- 통합 헬스 API: `http://localhost:8081/api/system/health`
+
+## 통합 실행 스크립트
+
+개별 명령 대신 아래 스크립트로 실행/종료를 일원화할 수 있습니다.
+
+```bash
+# 백엔드 + 프론트
+./scripts/dev-up.sh
+
+# 백엔드 + 프론트 + 더미 스트림(docs/video.mp4 기반)
+./scripts/dev-up.sh --with-dummy
+
+# 선택: ffmpeg test pattern 기반으로 실행
+SOURCE_MODE=testsrc ./scripts/dev-up.sh --with-dummy
+```
+
+상태 확인/종료:
+
+```bash
+./scripts/dev-status.sh
+./scripts/dev-down.sh
+```
+
+PID/로그:
+
+- PID: `.run/pids`
+- 로그: `.run/logs`
+
+## 로그인 계정 (기본)
+
+백엔드는 더 이상 코드에 기본 계정을 하드코딩하지 않습니다.
+실행 전 `AUTH_USERS` 환경변수를 반드시 설정해야 합니다.
+
+예시:
+
+- `admin / admin123` -> `admin:{plain}admin123:*`
+- `viewer / viewer123` -> `viewer:{plain}viewer123:mystream`
+
+## 문제 확인 포인트
+
+- 카메라 스트림 확인: `http://<device-ip>:81/stream`
+- HLS 파일 생성 확인: `ls apps/backend/hls`
+- `mystream.m3u8`가 없으면 웹 재생이 불가합니다.
+- 버퍼링/지연이 크면 GOP를 세그먼트 길이에 맞춰 실행:
+
+```bash
+FRAMERATE=15 KEYINT=15 HLS_TIME=1 HLS_LIST_SIZE=4 ./scripts/dev-up.sh --with-dummy
+```
+
+ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/main.cpp` 상단에서 직접 설정합니다.
+
+## 운영 팁
+
+`scripts/mjpeg_to_hls.sh`는 동일 `STREAM_ID` 중복 실행을 lock으로 차단하고,
+실패 반복 시 자동 백오프 재시도를 수행합니다.
+
+추가로 입력 MJPEG URL 사전 프로브를 수행해(기본 `SOURCE_PROBE_ENABLED=true`)
+소스가 죽은 상태에서 ffmpeg 프로세스를 무의미하게 반복 기동하지 않도록 되어 있습니다.
