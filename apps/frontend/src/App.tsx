@@ -62,7 +62,7 @@ export default function App() {
     };
   }, [streamHealthById, streams]);
 
-  function expireSession() {
+  function resetSessionState(nextAuthError: string | null) {
     setSession(null);
     setStreams([]);
     setStreamHealthById({});
@@ -72,8 +72,13 @@ export default function App() {
     setHealthPollMs(DEFAULT_HEALTH_POLL_MS);
     setSystemRecommendations([]);
     setHlsStorage(null);
+    setLoadingStreams(false);
     healthPollMsRef.current = DEFAULT_HEALTH_POLL_MS;
-    setAuthError("Session expired. Please sign in again.");
+    setAuthError(nextAuthError);
+  }
+
+  function expireSession() {
+    resetSessionState("Session expired. Please sign in again.");
   }
 
   useEffect(() => {
@@ -112,17 +117,7 @@ export default function App() {
   }, []);
 
   function clearAuthState() {
-    setSession(null);
-    setStreams([]);
-    setStreamHealthById({});
-    setLiveThresholdSeconds(0);
-    setAuthError(null);
-    setStreamsError(null);
-    setHealthWarning(null);
-    setHealthPollMs(DEFAULT_HEALTH_POLL_MS);
-    setSystemRecommendations([]);
-    setHlsStorage(null);
-    healthPollMsRef.current = DEFAULT_HEALTH_POLL_MS;
+    resetSessionState(null);
   }
 
   useEffect(() => {
