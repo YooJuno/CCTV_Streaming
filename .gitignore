@@ -1,0 +1,76 @@
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+*.swp
+*~
+*.tmp
+
+# Logs
+logs/
+.run/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment
+.env
+.env.*
+.env.local
+.python-version
+
+# Node / Front-end
+node_modules/
+apps/frontend/node_modules/
+apps/frontend/dist/
+apps/frontend/.vite/
+coverage/
+
+# Java / Gradle
+.gradle/
+build/
+apps/backend/.gradle/
+apps/backend/build/
+apps/backend/hls/
+*.class
+*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+*.war
+*.ear
+
+# Python
+venv/
+/venv/
+.env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+htmlcov/
+
+# Media scratch
+*.pcm
+*.yuv
+*.h264
+
+# Legacy artifacts
+rtsp-simple-server/
+tools/ffmpeg/
+
+# Keep repository ignore config tracked
+!/.gitignore

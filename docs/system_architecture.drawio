@@ -1,0 +1,83 @@
+<mxfile host="app.diagrams.net" modified="2026-02-19T00:18:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="cctv-arch-01" name="Architecture">
+    <mxGraphModel dx="1542" dy="880" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="CCTV_Streaming System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#12263A;" vertex="1" parent="1">
+          <mxGeometry x="50" y="30" width="580" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="subtitle" value="ESP32-CAM(MJPEG) -&amp;gt; FFmpeg(HLS) -&amp;gt; Spring Boot(Auth/HLS) -&amp;gt; React(hls.js)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=15;fontColor=#3A4D63;" vertex="1" parent="1">
+          <mxGeometry x="50" y="72" width="900" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="browser" value="User Browser&lt;br/&gt;React + hls.js&lt;br/&gt;Port: 5174" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#8FA6BE;strokeWidth=2;fillColor=#EEF5FF;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="170" width="280" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="backend" value="Spring Boot Backend&lt;br/&gt;AuthController / StreamController&lt;br/&gt;JwtAuthenticationFilter&lt;br/&gt;StreamAccessFilter&lt;br/&gt;Port: 8081" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#8FA6BE;strokeWidth=2;fillColor=#EEF7F4;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="150" width="360" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hlsstore" value="HLS Storage&lt;br/&gt;apps/backend/hls&lt;br/&gt;mystream.m3u8 + mystream_*.ts" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#8FA6BE;strokeWidth=2;fillColor=#FFF6EA;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="380" width="300" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ffmpeg" value="FFmpeg Converter&lt;br/&gt;scripts/mjpeg_to_hls.sh&lt;br/&gt;MJPEG input -&amp;gt; HLS output&lt;br/&gt;auto retry / stall recovery" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#8FA6BE;strokeWidth=2;fillColor=#F4F8FF;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="470" y="470" width="390" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="esp32" value="ESP32-CAM Device&lt;br/&gt;Firmware HTTP server&lt;br/&gt;MJPEG: :81/stream&lt;br/&gt;Health: /health" style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#8FA6BE;strokeWidth=2;fillColor=#F8F9FC;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="500" width="300" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge1" value="1) Login / API calls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3B5F87;strokeWidth=2;endArrow=block;endFill=1;fontSize=13;" edge="1" parent="1" source="browser" target="backend">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="430" y="200" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge2" value="2) /hls/mystream.m3u8 request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3B5F87;strokeWidth=2;endArrow=block;endFill=1;fontSize=13;" edge="1" parent="1" source="browser" target="backend">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="430" y="320" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge3" value="3) Read / Serve HLS files" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3B5F87;strokeWidth=2;endArrow=block;endFill=1;fontSize=13;" edge="1" parent="1" source="backend" target="hlsstore">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="920" y="310" />
+              <mxPoint x="920" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge4" value="4) JWT auth + stream authorization" style="edgeStyle=loopEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2E7D67;strokeWidth=2;endArrow=block;endFill=1;fontSize=13;" edge="1" parent="1" source="backend" target="backend">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="870" y="120" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="890" y="110" />
+              <mxPoint x="760" y="100" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge5" value="5) Write .m3u8 / .ts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2E7D67;strokeWidth=2;endArrow=block;endFill=1;fontSize=13;" edge="1" parent="1" source="ffmpeg" target="hlsstore">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge6" value="6) MJPEG input stream" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2E7D67;strokeWidth=2;endArrow=block;endFill=1;fontSize=13;" edge="1" parent="1" source="esp32" target="ffmpeg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="Key check: if /hls/mystream.m3u8 = 404, verify converter process and apps/backend/hls generation first." style="rounded=1;whiteSpace=wrap;html=1;strokeColor=#D7E1EC;fillColor=#F6F9FC;fontSize=14;fontColor=#2F435A;" vertex="1" parent="1">
+          <mxGeometry x="50" y="730" width="1230" height="70" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
