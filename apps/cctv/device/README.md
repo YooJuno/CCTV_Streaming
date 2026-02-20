@@ -43,12 +43,11 @@ pio --version
 
 ### 3) Wi-Fi 설정
 
-`apps/cctv/device/platformio.ini`에서 설정:
+현재 방식(직접 하드코딩): `main.cpp` 상단의 값을 수정하세요.
 
-```ini
-build_flags =
-  -DWIFI_SSID=\"YOUR_WIFI_SSID\"
-  -DWIFI_PASSWORD=\"YOUR_WIFI_PASSWORD\"
+```cpp
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 ```
 
 ### 4) 빌드

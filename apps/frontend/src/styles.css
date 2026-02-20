@@ -142,7 +142,7 @@ body {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   animation: rise-in 460ms ease-out;
 }
@@ -179,6 +179,10 @@ body {
 
 .overview-card.offline::before {
   background: linear-gradient(90deg, #ca403a, #f1884c);
+}
+
+.overview-card.storage::before {
+  background: linear-gradient(90deg, #4a51cf, #6aa1ef);
 }
 
 .overview-label {
@@ -333,6 +337,31 @@ body {
   background: #fff8ea;
   color: #82591a;
   font-size: 13px;
+}
+
+.system-recommendations {
+  margin: 8px 0 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid #d1dff0;
+  background: #f2f7ff;
+  color: #304c6b;
+  font-size: 13px;
+}
+
+.system-recommendations strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.system-recommendations ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.system-recommendations li + li {
+  margin-top: 4px;
 }
 
 .loading-text {
