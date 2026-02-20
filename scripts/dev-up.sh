@@ -26,7 +26,7 @@ Options:
 
 Examples:
   ./scripts/dev-up.sh
-  ./scripts/dev-up.sh --with-converter --mjpeg-url http://192.168.0.42:81/stream
+  ./scripts/dev-up.sh --with-converter --mjpeg-url http://192.168.219.106:81/stream
   ./scripts/dev-up.sh --with-dummy
 EOF
 }
