@@ -38,10 +38,9 @@ HLS_ALLOWED_ORIGINS='http://localhost:5174,http://127.0.0.1:5174,http://122.45.2
 ./scripts/dev-up.sh --with-dummy
 ```
 
-## 4) 운영(systemd) 반영
+## 4) 운영 환경 반영
 
-systemd로 운영 중이면 `deploy/systemd/backend.env.example`를 참고해
-실제 env 파일에 아래 항목을 넣어야 합니다.
+운영 실행 스크립트/서비스 환경변수에 아래 항목을 넣어야 합니다.
 
 ```env
 API_ALLOWED_ORIGINS=http://localhost:5174,http://127.0.0.1:5174,http://122.45.250.216:5174

@@ -19,20 +19,8 @@ ESP32-CAM(MJPEG) -> ffmpeg(HLS) -> Spring Boot(/hls + /api) -> React(hls.js)
 
 - Java 17+
 - Node.js 18+
-- ffmpeg
+- ffmpeg (system PATH)
 - PlatformIO (ESP32 업로드 시)
-
-`ffmpeg`가 시스템에 없다면 로컬 설치:
-
-```bash
-./scripts/install_local_ffmpeg.sh
-```
-
-무결성 검증을 하려면:
-
-```bash
-FFMPEG_ARCHIVE_SHA256=<sha256> ./scripts/install_local_ffmpeg.sh
-```
 
 ## 실행 순서
 
@@ -86,8 +74,11 @@ npm --prefix apps/frontend run dev
 # 백엔드 + 프론트
 ./scripts/dev-up.sh
 
-# 백엔드 + 프론트 + 더미 스트림(video.mp4 기반)
+# 백엔드 + 프론트 + 더미 스트림(docs/video.mp4 기반)
 ./scripts/dev-up.sh --with-dummy
+
+# 선택: ffmpeg test pattern 기반으로 실행
+SOURCE_MODE=testsrc ./scripts/dev-up.sh --with-dummy
 ```
 
 상태 확인/종료:
@@ -101,12 +92,6 @@ PID/로그:
 
 - PID: `.run/pids`
 - 로그: `.run/logs`
-
-간단 E2E 스모크 테스트:
-
-```bash
-./scripts/e2e_smoke_dummy.sh
-```
 
 ## 로그인 계정 (기본)
 
@@ -129,11 +114,7 @@ PID/로그:
 FRAMERATE=15 KEYINT=15 HLS_TIME=1 HLS_LIST_SIZE=4 ./scripts/dev-up.sh --with-dummy
 ```
 
-ESP32-CAM Wi-Fi 자격증명은 저장소 파일 대신 아래처럼 로컬 파일 사용 권장:
-
-```bash
-cp apps/cctv/device/wifi_secrets.h.example apps/cctv/device/wifi_secrets.h
-```
+ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/main.cpp` 상단에서 직접 설정합니다.
 
 ## 운영 팁
 
@@ -142,15 +123,3 @@ cp apps/cctv/device/wifi_secrets.h.example apps/cctv/device/wifi_secrets.h
 
 추가로 입력 MJPEG URL 사전 프로브를 수행해(기본 `SOURCE_PROBE_ENABLED=true`)
 소스가 죽은 상태에서 ffmpeg 프로세스를 무의미하게 반복 기동하지 않도록 되어 있습니다.
-
-## systemd(user) 운영
-
-`deploy/systemd` 템플릿과 설치 스크립트를 제공합니다.
-
-```bash
-./scripts/install_systemd_user_services.sh --enable --start
-```
-
-관련 문서:
-
-- `deploy/systemd/README.md`
