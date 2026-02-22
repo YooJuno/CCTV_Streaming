@@ -10,26 +10,31 @@ MJPEG_URL="${MJPEG_URL:-http://YOUR_DEVICE_IP:81/stream}"
 STREAM_ID="${STREAM_ID:-mystream}"
 HLS_DIR="${HLS_DIR:-$ROOT_DIR/apps/backend/hls}"
 # ESP32-CAM MJPEG streams can fluctuate heavily in delivered FPS.
-# Keep defaults conservative to prioritize smooth playback over peak quality.
-INPUT_FRAMERATE="${INPUT_FRAMERATE:-12}"
-FRAMERATE="${FRAMERATE:-8}"
+# Keep defaults stability-first to reduce rebuffering on weaker Wi-Fi links.
+INPUT_FRAMERATE="${INPUT_FRAMERATE:-8}"
+FRAMERATE="${FRAMERATE:-6}"
 # Keep keyframe interval aligned with output fps by default.
 # This avoids unintended long HLS segment durations (and extra latency)
 # when HLS_TIME is configured around 1s.
 KEYINT="${KEYINT:-$FRAMERATE}"
-HLS_TIME="${HLS_TIME:-1}"
-HLS_LIST_SIZE="${HLS_LIST_SIZE:-4}"
+HLS_TIME="${HLS_TIME:-2}"
+HLS_LIST_SIZE="${HLS_LIST_SIZE:-6}"
 HLS_DELETE="${HLS_DELETE:-true}"
 VIDEO_CODEC="${VIDEO_CODEC:-libx264}"
 VIDEO_PRESET="${VIDEO_PRESET:-ultrafast}"
 VIDEO_TUNE="${VIDEO_TUNE:-zerolatency}"
 PIX_FMT="${PIX_FMT:-yuv420p}"
+VIDEO_BITRATE="${VIDEO_BITRATE:-500k}"
+VIDEO_MAXRATE="${VIDEO_MAXRATE:-650k}"
+VIDEO_BUFSIZE="${VIDEO_BUFSIZE:-1000k}"
+INPUT_THREAD_QUEUE_SIZE="${INPUT_THREAD_QUEUE_SIZE:-256}"
 RETRY_DELAY_SECONDS="${RETRY_DELAY_SECONDS:-1}"
 MAX_RETRY_DELAY_SECONDS="${MAX_RETRY_DELAY_SECONDS:-15}"
-STALL_TIMEOUT_SECONDS="${STALL_TIMEOUT_SECONDS:-12}"
+STALL_TIMEOUT_SECONDS="${STALL_TIMEOUT_SECONDS:-25}"
 SOURCE_PROBE_ENABLED="${SOURCE_PROBE_ENABLED:-true}"
-SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS="${SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS:-2}"
-SOURCE_PROBE_MAX_TIME_SECONDS="${SOURCE_PROBE_MAX_TIME_SECONDS:-4}"
+SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS="${SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS:-4}"
+SOURCE_PROBE_MAX_TIME_SECONDS="${SOURCE_PROBE_MAX_TIME_SECONDS:-8}"
+FFMPEG_RW_TIMEOUT_US="${FFMPEG_RW_TIMEOUT_US:-15000000}"
 FFMPEG_BIN="${FFMPEG_BIN:-}"
 LOCAL_FFMPEG="$ROOT_DIR/tools/ffmpeg/ffmpeg"
 LOCK_DIR="${LOCK_DIR:-/tmp/cctv_streaming_locks}"
@@ -143,8 +148,13 @@ log "HLS_DELETE=$HLS_DELETE"
 log "VIDEO_CODEC=$VIDEO_CODEC"
 log "VIDEO_PRESET=$VIDEO_PRESET"
 log "VIDEO_TUNE=$VIDEO_TUNE"
+log "VIDEO_BITRATE=$VIDEO_BITRATE"
+log "VIDEO_MAXRATE=$VIDEO_MAXRATE"
+log "VIDEO_BUFSIZE=$VIDEO_BUFSIZE"
+log "INPUT_THREAD_QUEUE_SIZE=$INPUT_THREAD_QUEUE_SIZE"
 log "FFMPEG_BIN=$FFMPEG_BIN"
 log "STALL_TIMEOUT_SECONDS=$STALL_TIMEOUT_SECONDS"
+log "FFMPEG_RW_TIMEOUT_US=$FFMPEG_RW_TIMEOUT_US"
 log "MAX_RETRY_DELAY_SECONDS=$MAX_RETRY_DELAY_SECONDS"
 log "SOURCE_PROBE_ENABLED=$SOURCE_PROBE_ENABLED"
 log "SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS=$SOURCE_PROBE_CONNECT_TIMEOUT_SECONDS"
@@ -175,12 +185,17 @@ while true; do
 
   "$FFMPEG_BIN" -hide_banner -loglevel warning \
     -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 \
-    -rw_timeout 5000000 \
+    -fflags +discardcorrupt \
+    -thread_queue_size "$INPUT_THREAD_QUEUE_SIZE" \
+    -rw_timeout "$FFMPEG_RW_TIMEOUT_US" \
     -r "$INPUT_FRAMERATE" \
     -f mjpeg -i "$MJPEG_URL" \
     -an \
     -r "$FRAMERATE" \
     -c:v "$VIDEO_CODEC" -preset "$VIDEO_PRESET" -tune "$VIDEO_TUNE" -pix_fmt "$PIX_FMT" \
+    -profile:v baseline -level 3.1 \
+    -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
+    -fps_mode cfr \
     -g "$KEYINT" -keyint_min "$KEYINT" -sc_threshold 0 \
     -f hls \
     -hls_time "$HLS_TIME" \
