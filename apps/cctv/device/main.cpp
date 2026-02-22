@@ -20,6 +20,15 @@ static const uint8_t WIFI_MAX_RECONNECT_FAILURES = 10;
 
 static const uint32_t CAMERA_RECOVERY_COOLDOWN_MS = 3000;
 static const uint8_t STREAM_CAPTURE_FAILURE_LIMIT = 15;
+// Stability-first defaults for weak/unstable Wi-Fi environments.
+static const framesize_t CAMERA_FRAME_SIZE = FRAMESIZE_CIF;
+static const uint8_t CAMERA_JPEG_QUALITY = 15;
+static const uint8_t CAMERA_FB_COUNT = 2;
+static const uint8_t STREAM_TARGET_FPS = 6;
+static const uint32_t STREAM_MIN_FRAME_INTERVAL_MS = 1000 / STREAM_TARGET_FPS;
+static const size_t STREAM_PAYLOAD_CHUNK_SIZE = 1024;
+static const uint8_t STREAM_RECV_WAIT_TIMEOUT_SECONDS = 5;
+static const uint8_t STREAM_SEND_WAIT_TIMEOUT_SECONDS = 3;
 
 // AI Thinker pin map
 #define PWDN_GPIO_NUM     32
@@ -115,12 +124,18 @@ static camera_config_t buildCameraConfig() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 10;
-    config.fb_count = 2;
+    config.frame_size = CAMERA_FRAME_SIZE;
+    config.jpeg_quality = CAMERA_JPEG_QUALITY;
+    config.fb_count = CAMERA_FB_COUNT;
+#if defined(CAMERA_GRAB_LATEST)
+    config.grab_mode = CAMERA_GRAB_LATEST;
+#endif
+#if defined(CAMERA_FB_IN_PSRAM)
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+#endif
   } else {
-    config.frame_size = FRAMESIZE_CIF;
-    config.jpeg_quality = 12;
+    config.frame_size = FRAMESIZE_QVGA;
+    config.jpeg_quality = CAMERA_JPEG_QUALITY + 2;
     config.fb_count = 1;
   }
   return config;
@@ -133,6 +148,11 @@ static bool initCameraUnlocked() {
     Serial.printf("Camera init failed: 0x%x\n", err);
     camera_initialized = false;
     return false;
+  }
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (sensor != nullptr) {
+    sensor->set_framesize(sensor, psramFound() ? CAMERA_FRAME_SIZE : FRAMESIZE_QVGA);
+    sensor->set_quality(sensor, psramFound() ? CAMERA_JPEG_QUALITY : CAMERA_JPEG_QUALITY + 2);
   }
   camera_initialized = true;
   return true;
@@ -249,7 +269,12 @@ static bool connectWiFi(uint32_t timeout_ms) {
   }
 
   WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);
+#if defined(WIFI_POWER_19_5dBm)
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+#endif
   WiFi.disconnect(false, true);
   delay(100);
   WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
@@ -325,6 +350,25 @@ static esp_err_t health_handler(httpd_req_t *req) {
   return httpd_resp_send(req, body, written);
 }
 
+static esp_err_t sendFramePayload(httpd_req_t *req, const uint8_t *data, size_t length) {
+  if (data == nullptr || length == 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  size_t offset = 0;
+  while (offset < length) {
+    size_t chunk_size = length - offset;
+    if (chunk_size > STREAM_PAYLOAD_CHUNK_SIZE) {
+      chunk_size = STREAM_PAYLOAD_CHUNK_SIZE;
+    }
+    esp_err_t res = httpd_resp_send_chunk(req, reinterpret_cast<const char *>(data + offset), chunk_size);
+    if (res != ESP_OK) {
+      return res;
+    }
+    offset += chunk_size;
+  }
+  return ESP_OK;
+}
+
 static esp_err_t stream_handler(httpd_req_t *req) {
   if (xSemaphoreTake(stream_client_mutex, 0) != pdTRUE) {
     httpd_resp_set_status(req, "503 Service Unavailable");
@@ -341,8 +385,15 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
   uint8_t capture_failures = 0;
   char part_buf[64];
+  uint32_t next_frame_due_ms = millis();
 
   while (res == ESP_OK) {
+    uint32_t now_ms = millis();
+    int32_t wait_ms = static_cast<int32_t>(next_frame_due_ms - now_ms);
+    if (wait_ms > 0) {
+      delay(static_cast<uint32_t>(wait_ms));
+    }
+
     if (WiFi.status() != WL_CONNECTED) {
       res = ESP_FAIL;
       break;
@@ -371,7 +422,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       }
     }
     if (res == ESP_OK) {
-      res = httpd_resp_send_chunk(req, reinterpret_cast<const char *>(frame.buf), frame.len);
+      res = sendFramePayload(req, frame.buf, frame.len);
     }
 
     releaseJpegFrame(frame);
@@ -380,7 +431,8 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       Serial.println("[INFO] Stream client disconnected.");
       break;
     }
-    delay(1);
+
+    next_frame_due_ms = millis() + STREAM_MIN_FRAME_INTERVAL_MS;
   }
 
   xSemaphoreGive(stream_client_mutex);
@@ -416,8 +468,8 @@ static void startCameraServer() {
   stream_config.server_port = 81;
   stream_config.ctrl_port = config.ctrl_port + 1;
   stream_config.lru_purge_enable = true;
-  stream_config.recv_wait_timeout = 10;
-  stream_config.send_wait_timeout = 10;
+  stream_config.recv_wait_timeout = STREAM_RECV_WAIT_TIMEOUT_SECONDS;
+  stream_config.send_wait_timeout = STREAM_SEND_WAIT_TIMEOUT_SECONDS;
 
   httpd_uri_t stream_uri = {
       .uri = "/stream",
