@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 const backendTarget = process.env.VITE_PROXY_TARGET || "http://127.0.0.1:8081";
