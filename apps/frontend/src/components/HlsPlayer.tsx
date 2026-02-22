@@ -17,6 +17,10 @@ const MAX_MEDIA_RECOVERIES = 3;
 const STALL_WATCHDOG_INTERVAL_MS = 1000;
 const STALL_WATCHDOG_TRIGGER_MS = 8000;
 const MAX_STALL_RECOVERY_ATTEMPTS = 5;
+const LATENCY_SOFT_CATCHUP_SEC = 4;
+const LATENCY_HARD_SEEK_SEC = 8;
+const LIVE_EDGE_BACKOFF_SEC = 1.2;
+const CATCHUP_PLAYBACK_RATE = 1.08;
 
 const INITIAL_METRICS: PlaybackMetrics = {
   latencySec: null,
@@ -92,6 +96,42 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       stallRecoveryAttempts = 0;
     };
 
+    const syncToLiveEdge = () => {
+      if (disposed || !video || !hls || video.paused || video.seeking) {
+        return;
+      }
+      const liveSyncPosition = hls.liveSyncPosition;
+      if (typeof liveSyncPosition !== "number" || !Number.isFinite(liveSyncPosition)) {
+        if (video.playbackRate !== 1) {
+          video.playbackRate = 1;
+        }
+        return;
+      }
+      const latency = liveSyncPosition - video.currentTime;
+      if (!Number.isFinite(latency) || latency < 0) {
+        if (video.playbackRate !== 1) {
+          video.playbackRate = 1;
+        }
+        return;
+      }
+
+      if (latency >= LATENCY_HARD_SEEK_SEC) {
+        const targetTime = Math.max(0, liveSyncPosition - LIVE_EDGE_BACKOFF_SEC);
+        if (targetTime > video.currentTime + 0.25) {
+          video.currentTime = targetTime;
+          markProgress();
+        }
+      }
+
+      if (latency >= LATENCY_SOFT_CATCHUP_SEC) {
+        if (video.playbackRate !== CATCHUP_PLAYBACK_RATE) {
+          video.playbackRate = CATCHUP_PLAYBACK_RATE;
+        }
+      } else if (video.playbackRate !== 1) {
+        video.playbackRate = 1;
+      }
+    };
+
     const markWaiting = () => {
       stallCount += 1;
       setStatus("buffering");
@@ -112,6 +152,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       video.removeEventListener("waiting", markWaiting);
       video.removeEventListener("playing", markPlaying);
       video.removeEventListener("error", markVideoError);
+      video.playbackRate = 1;
       video.pause();
       video.removeAttribute("src");
       video.load();
@@ -154,7 +195,10 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     video.addEventListener("waiting", markWaiting);
     video.addEventListener("playing", markPlaying);
     video.addEventListener("error", markVideoError);
-    statsTimer = window.setInterval(updateMetrics, 1000);
+    statsTimer = window.setInterval(() => {
+      updateMetrics();
+      syncToLiveEdge();
+    }, 1000);
     stallWatchdogTimer = window.setInterval(() => {
       if (disposed) {
         return;
@@ -249,11 +293,17 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       hls = new ctor({
         lowLatencyMode: false,
         backBufferLength: 30,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 5,
-        maxBufferLength: 12,
-        maxMaxBufferLength: 24,
-        maxLiveSyncPlaybackRate: 1.5,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 10,
+        maxBufferLength: 24,
+        maxMaxBufferLength: 48,
+        maxLiveSyncPlaybackRate: 1.2,
+        manifestLoadingTimeOut: 20000,
+        levelLoadingTimeOut: 20000,
+        fragLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: 6,
+        levelLoadingMaxRetry: 6,
+        fragLoadingMaxRetry: 6,
         xhrSetup: (xhr) => {
           xhr.withCredentials = true;
         },
