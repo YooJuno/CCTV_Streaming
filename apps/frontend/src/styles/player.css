@@ -5,10 +5,11 @@
 
 .hls-video {
   width: 100%;
-  border-radius: 12px;
-  background: #03131e;
-  border: 1px solid #183349;
+  border-radius: 13px;
+  background: #041622;
+  border: 1px solid #1e3c56;
   aspect-ratio: 16 / 9;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .hls-toolbar {
@@ -26,38 +27,38 @@
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
-  background: #edf3fb;
-  color: #45607b;
-  border: 1px solid #d3dfed;
+  background: #edf4fe;
+  color: #425f7d;
+  border: 1px solid #d0def0;
 }
 
 .status-badge.ok {
-  color: #0e6d3f;
-  background: #d8f4e6;
-  border-color: #bee9d4;
+  color: #0d6e42;
+  background: #d7f5e6;
+  border-color: #bae7d1;
 }
 
 .status-badge.ready {
-  color: #1e5e9e;
-  background: #deedff;
-  border-color: #c7dcf5;
+  color: #1d5e9b;
+  background: #e0eeff;
+  border-color: #cadef6;
 }
 
 .status-badge.warn {
-  color: #865420;
-  background: #fde8cd;
-  border-color: #f3d8b1;
+  color: #825220;
+  background: #fdebd1;
+  border-color: #efd8b0;
 }
 
 .status-badge.error {
-  color: #a02f38;
-  background: #ffe2e5;
-  border-color: #f0c2c8;
+  color: #9f2f39;
+  background: #ffe4e8;
+  border-color: #eec2c9;
 }
 
 .status-badge.neutral {
-  color: #45607b;
-  background: #ecf2fb;
+  color: #4a627f;
+  background: #edf3fc;
 }
 
 .metrics-grid {
@@ -69,14 +70,14 @@
 .metrics-grid > div {
   display: grid;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 7px 9px;
   border-radius: 10px;
-  border: 1px solid #d6e0ee;
-  background: #f8fbff;
+  border: 1px solid #d2deee;
+  background: linear-gradient(170deg, #fafdff, #f2f8ff);
 }
 
 .metric-label {
-  color: #5f6f81;
+  color: #5f7085;
   font-size: 11px;
   font-weight: 600;
 }
@@ -88,7 +89,7 @@
 
 .manifest-text {
   margin: 0;
-  color: #5c6e82;
+  color: #5a6d82;
   font-size: 11px;
   overflow-wrap: anywhere;
 }
