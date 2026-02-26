@@ -1,19 +1,27 @@
 .stream-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(410px, 1fr));
-  gap: 14px;
-  margin-top: 4px;
+  gap: 15px;
+  margin-top: 6px;
 }
 
 .stream-card {
   position: relative;
-  padding: 15px;
-  border: 1px solid var(--line);
+  padding: 16px;
+  border: 1px solid rgba(194, 211, 231, 0.92);
   border-radius: var(--radius-lg);
-  background: var(--card-strong);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(244, 251, 255, 0.88));
   box-shadow: var(--shadow-md);
   transition: transform 140ms ease, box-shadow 140ms ease;
-  animation: rise-in 460ms ease-out;
+  animation: rise-in 500ms ease-out;
+}
+
+.stream-grid .stream-card:nth-child(2n) {
+  animation-delay: 40ms;
+}
+
+.stream-grid .stream-card:nth-child(3n) {
+  animation-delay: 70ms;
 }
 
 .stream-card::before {
@@ -27,19 +35,19 @@
 }
 
 .stream-card.tone-live::before {
-  background: linear-gradient(90deg, #159b5f, #53c47f);
+  background: linear-gradient(90deg, #14955d, #45c788);
 }
 
 .stream-card.tone-offline::before {
-  background: linear-gradient(90deg, #cf4e45, #f28d58);
+  background: linear-gradient(90deg, #cd4b44, #f29663);
 }
 
 .stream-card.tone-starting::before {
-  background: linear-gradient(90deg, #c6852b, #f3be5e);
+  background: linear-gradient(90deg, #be7e25, #eebc5c);
 }
 
 .stream-card.tone-checking::before {
-  background: linear-gradient(90deg, #3f6dc7, #4ba7d8);
+  background: linear-gradient(90deg, #3a69c9, #43a2df);
 }
 
 .stream-card-header {
@@ -52,14 +60,14 @@
 
 .stream-card h3 {
   margin: 0;
-  font-family: "Sora", "Plus Jakarta Sans", sans-serif;
-  font-size: 19px;
+  font-family: "Sora", "Outfit", sans-serif;
+  font-size: 20px;
   letter-spacing: -0.01em;
 }
 
 .stream-id {
   margin: 4px 0 0;
-  color: #5f6f82;
+  color: #5a6d86;
   font-size: 12px;
 }
 
@@ -75,9 +83,9 @@
   align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #eff4fb;
-  color: #4c6076;
-  border: 1px solid #d7e1ee;
+  background: #edf5ff;
+  color: #4b6079;
+  border: 1px solid #d2deee;
   font-size: 11px;
   font-weight: 600;
 }
@@ -94,8 +102,8 @@
 }
 
 .stream-live-pill.live {
-  color: #0a7643;
-  background: #d8f3e6;
+  color: #0a7748;
+  background: #daf6e8;
 }
 
 .stream-live-pill.live::before {
@@ -104,28 +112,28 @@
   height: 6px;
   margin-right: 6px;
   border-radius: 999px;
-  background: #0a7643;
+  background: #0a7748;
   animation: pulse 1.6s ease-in-out infinite;
 }
 
 .stream-live-pill.offline {
-  color: #a02f38;
-  background: #ffe2e5;
+  color: #a13039;
+  background: #ffe4e8;
 }
 
 .stream-live-pill.starting {
-  color: #8a5a1f;
-  background: #ffeccb;
+  color: #85571e;
+  background: #ffedcf;
 }
 
 .stream-live-pill.error {
-  color: #9b2432;
-  background: #ffdce1;
+  color: #962737;
+  background: #ffe0e6;
 }
 
 .stream-live-pill.checking {
-  color: #46627b;
-  background: #e9f1fd;
+  color: #47617c;
+  background: #ebf3ff;
 }
 
 .stream-placeholder {
@@ -135,10 +143,10 @@
   justify-content: center;
   gap: 10px;
   min-height: 220px;
-  border: 1px dashed #c8d8eb;
+  border: 1px dashed #bfd2e8;
   border-radius: 12px;
-  color: #53657b;
-  background: linear-gradient(160deg, #fcfdff, #f5f9ff);
+  color: #4d617a;
+  background: linear-gradient(165deg, #fcfeff, #f2f8ff);
   font-size: 13px;
   text-align: left;
   padding: 12px;
@@ -155,9 +163,9 @@
   margin: 0;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid #d8e3f2;
-  background: #f0f6ff;
-  color: #38506d;
+  border: 1px solid #d2e0f2;
+  background: #eef6ff;
+  color: #34516f;
   font-size: 11px;
   overflow-wrap: anywhere;
 }
