@@ -1,8 +1,20 @@
 # CCTV Front End
 
 React 19 + Vite + TypeScript dashboard for authenticated multi-stream HLS playback.
+
+## Architecture
+
+Front-end is organized by feature domains:
+
+- `src/features/auth`: authentication/session lifecycle (`useAuthSession`)
+- `src/features/streams`: stream list query (`useStreamsQuery`)
+- `src/features/health`: adaptive health polling (`useHealthPolling`)
+- `src/features/system`: system health query cache (`useSystemHealthQuery`)
+- `src/features/player`: playback state/recovery policy (`useHlsPlayback`, `hlsErrorPolicy`)
+- `src/components`: presentational components
+- `src/styles`: split stylesheet modules (`app.css`, `auth.css`, `stream-card.css`, `player.css`)
+
 Authentication uses backend HttpOnly cookie session (`/api/auth/login`).
-UI polls `/api/streams/health` and `/api/system/health` to show LIVE/OFFLINE state and system guidance.
 
 ## Run
 
@@ -14,10 +26,26 @@ npm run dev
 
 Open `http://localhost:5174`.
 
-## Test
+## Quality Gates
 
 ```bash
+# static
+npm run typecheck
+
+# unit/component tests
 npm run test:run
+
+# production build
+npm run build
+
+# e2e tests (Playwright)
+npm run e2e
+```
+
+Before first E2E run on a machine:
+
+```bash
+npx playwright install chromium
 ```
 
 ## Environment variables
