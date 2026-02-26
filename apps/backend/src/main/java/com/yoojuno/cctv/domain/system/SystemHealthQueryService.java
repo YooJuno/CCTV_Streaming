@@ -1,16 +1,11 @@
-package com.yoojuno.cctv.controller;
+package com.yoojuno.cctv.domain.system;
 
 import com.yoojuno.cctv.auth.AuthenticatedUser;
+import com.yoojuno.cctv.domain.stream.StreamQueryService;
 import com.yoojuno.cctv.model.StreamInfo;
-import com.yoojuno.cctv.stream.StreamCatalogService;
 import com.yoojuno.cctv.stream.StreamHealthService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -24,40 +19,32 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
-@RestController
-@RequestMapping("/api/system")
-public class SystemHealthController {
+@Service
+public class SystemHealthQueryService {
     @Value("${hls.path:./hls}")
     private String hlsPath;
 
-    private final StreamCatalogService streamCatalogService;
-    private final StreamHealthService streamHealthService;
+    private final StreamQueryService streamQueryService;
 
-    public SystemHealthController(StreamCatalogService streamCatalogService, StreamHealthService streamHealthService) {
-        this.streamCatalogService = streamCatalogService;
-        this.streamHealthService = streamHealthService;
+    public SystemHealthQueryService(StreamQueryService streamQueryService) {
+        this.streamQueryService = streamQueryService;
     }
 
-    @GetMapping("/health")
-    public ResponseEntity<?> systemHealth(Authentication authentication) {
-        if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser user)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
-        }
-
-        List<StreamInfo> streams = streamCatalogService.forAllowedStreamIds(user.allowedStreams());
-        List<StreamHealthService.StreamHealth> streamDetails = streamHealthService.healthForStreams(streams);
+    public SystemHealthSnapshot query(AuthenticatedUser user) {
+        List<StreamInfo> streams = streamQueryService.authorizedStreams(user);
+        List<StreamHealthService.StreamHealth> streamDetails = streamQueryService.streamHealthSnapshot(user).streams();
         HlsStorageStatus hlsStorage = resolveHlsStorageStatus();
         StreamHealthSummary streamSummary = summarize(streamDetails);
         List<String> recommendations = buildRecommendations(streams, streamSummary, hlsStorage);
 
-        return ResponseEntity.ok(new SystemHealthResponse(
+        return new SystemHealthSnapshot(
                 Instant.now().toEpochMilli(),
                 user.username(),
                 hlsStorage,
                 streamSummary,
                 streamDetails,
                 recommendations
-        ));
+        );
     }
 
     private HlsStorageStatus resolveHlsStorageStatus() {
@@ -169,7 +156,7 @@ public class SystemHealthController {
         return new ArrayList<>(output);
     }
 
-    public record SystemHealthResponse(
+    public record SystemHealthSnapshot(
             long generatedAtEpochMs,
             String username,
             HlsStorageStatus hlsStorage,
