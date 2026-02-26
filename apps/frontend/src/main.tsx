@@ -1,7 +1,22 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
-import "./styles.css";
+import "./styles/app.css";
+import "./styles/auth.css";
+import "./styles/stream-card.css";
+import "./styles/player.css";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      staleTime: 2_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  },
+});
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -10,6 +25,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </React.StrictMode>
 );
