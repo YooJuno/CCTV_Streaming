@@ -1,0 +1,10 @@
+export const STALL_WATCHDOG_INTERVAL_MS = 1000;
+export const STALL_WATCHDOG_TRIGGER_MS = 8000;
+export const MAX_STALL_RECOVERY_ATTEMPTS = 5;
+export const LATENCY_SOFT_CATCHUP_SEC = 4;
+export const LATENCY_HARD_SEEK_SEC = 8;
+export const LIVE_EDGE_BACKOFF_SEC = 1.2;
+export const CATCHUP_PLAYBACK_RATE = 1.08;
+
+export const MAX_FATAL_RELOADS = 6;
+export const FATAL_RELOAD_BASE_DELAY_MS = 1500;
