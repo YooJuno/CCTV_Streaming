@@ -113,3 +113,24 @@ npm --prefix apps/frontend run dev
 
 - ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/main.cpp` 상단에서 설정합니다.
 - `AUTH_USERS` 형식: `username:passwordSpec:stream1,stream2`
+
+## 품질 게이트
+
+```bash
+# frontend
+npm --prefix apps/frontend run typecheck
+npm --prefix apps/frontend run test:run
+npm --prefix apps/frontend run build
+npm --prefix apps/frontend run e2e
+
+# backend
+cd apps/backend && ./gradlew test
+```
+
+CI 파이프라인은 `.github/workflows/ci.yml`에 정의되어 있으며, PR 기준으로 backend test + frontend typecheck/test/build/e2e를 모두 통과해야 합니다.
+
+## 아키텍처 노트
+
+- 프론트: feature hooks 중심(`src/features/*`) + presentational components 분리
+- 백엔드: `api/*(controller/dto/mapper)` + `domain/*(service)` 구조
+- API 계약: [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md) (v1, backward compatible)
