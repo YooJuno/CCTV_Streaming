@@ -74,6 +74,10 @@ if ! command -v curl >/dev/null 2>&1; then
   echo "curl not found in PATH"
   exit 1
 fi
+if [ -z "${AUTH_JWT_SECRET:-}" ] && ! command -v openssl >/dev/null 2>&1; then
+  echo "openssl not found in PATH. Install it or export AUTH_JWT_SECRET yourself."
+  exit 1
+fi
 
 if [ "$WITH_DUMMY" = true ] && [ -z "$MJPEG_URL" ]; then
   MJPEG_URL="http://127.0.0.1:${DUMMY_PORT}/stream"
@@ -84,9 +88,31 @@ if [ "$WITH_CONVERTER" = true ] && [ -z "$MJPEG_URL" ]; then
   exit 1
 fi
 
-AUTH_JWT_SECRET_VALUE="${AUTH_JWT_SECRET:-dev-jwt-secret-change-me-32-bytes-minimum-value}"
+# A checked-in default secret is a publicly known signing key, and this script happily adds the
+# machine's public IP to the CORS allow-list below. Generate one per machine instead and keep it
+# in .run/ so sessions survive a restart.
+resolve_dev_jwt_secret() {
+  if [ -n "${AUTH_JWT_SECRET:-}" ]; then
+    echo "$AUTH_JWT_SECRET"
+    return 0
+  fi
+  ensure_run_dirs
+  local secret_file="$RUN_DIR/jwt_secret"
+  if [ ! -s "$secret_file" ]; then
+    ( umask 077 && openssl rand -base64 48 | tr -d '\n' > "$secret_file" )
+    # stdout of this function is the secret itself, so status goes to stderr.
+    log "Generated a local dev JWT secret: $secret_file" >&2
+  fi
+  cat "$secret_file"
+}
+
+AUTH_JWT_SECRET_VALUE="$(resolve_dev_jwt_secret)"
 DEFAULT_AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
 AUTH_USERS_VALUE="${AUTH_USERS:-$DEFAULT_AUTH_USERS}"
+if [ -z "${AUTH_USERS:-}" ]; then
+  log "WARNING: using built-in dev accounts (admin/admin123, viewer/viewer123)."
+  log "         Set AUTH_USERS before exposing this host to a network you do not control."
+fi
 API_ALLOWED_ORIGINS_VALUE="${API_ALLOWED_ORIGINS:-http://localhost:5174,http://127.0.0.1:5174}"
 HLS_ALLOWED_ORIGINS_VALUE="${HLS_ALLOWED_ORIGINS:-$API_ALLOWED_ORIGINS_VALUE}"
 VITE_PROXY_TARGET_VALUE="${VITE_PROXY_TARGET:-http://127.0.0.1:8081}"
