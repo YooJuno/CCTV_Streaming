@@ -7,8 +7,6 @@ interface MockOptions {
   loginBody?: object;
   streamsStatus?: number;
   streamsBody?: object;
-  healthStatus?: number;
-  healthBody?: object;
   systemStatus?: number;
   systemBody?: object;
 }
@@ -57,36 +55,6 @@ async function installApiMocks(page: Page, options: MockOptions): Promise<void> 
     });
   });
 
-  await page.route("**/api/streams/health", async (route) => {
-    await route.fulfill({
-      status: options.healthStatus ?? 200,
-      contentType: "application/json",
-      body: JSON.stringify(
-        options.healthBody ?? {
-          streams: [
-            {
-              id: "mystream",
-              live: true,
-              manifestExists: true,
-              lastModifiedEpochMs: Date.now(),
-              manifestAgeSeconds: 1,
-              state: "LIVE",
-              reason: "OK",
-              segmentCount: 3,
-              targetDurationSeconds: 1,
-              endList: false,
-              latestSegmentExists: true,
-              latestSegmentSizeBytes: 1000,
-            },
-          ],
-          liveThresholdSeconds: 12,
-          recommendedPollMs: 4000,
-          generatedAtEpochMs: Date.now(),
-        },
-      ),
-    });
-  });
-
   await page.route("**/api/system/health", async (route) => {
     await route.fulfill({
       status: options.systemStatus ?? 200,
@@ -112,7 +80,24 @@ async function installApiMocks(page: Page, options: MockOptions): Promise<void> 
             error: 0,
             reasons: { OK: 1 },
           },
-          streamDetails: [],
+          streamDetails: [
+            {
+              id: "mystream",
+              live: true,
+              manifestExists: true,
+              lastModifiedEpochMs: Date.now(),
+              manifestAgeSeconds: 1,
+              state: "LIVE",
+              reason: "OK",
+              segmentCount: 3,
+              targetDurationSeconds: 1,
+              endList: false,
+              latestSegmentExists: true,
+              latestSegmentSizeBytes: 1000,
+            },
+          ],
+          liveThresholdSeconds: 12,
+          recommendedPollMs: 4000,
           recommendations: ["All authorized streams are healthy."],
         },
       ),
@@ -163,12 +148,6 @@ test("empty stream assignments show empty-state", async ({ page }) => {
       streams: [],
     },
     streamsBody: { streams: [] },
-    healthBody: {
-      streams: [],
-      liveThresholdSeconds: 12,
-      recommendedPollMs: 4000,
-      generatedAtEpochMs: Date.now(),
-    },
     systemBody: {
       generatedAtEpochMs: Date.now(),
       username: "viewer",
@@ -190,6 +169,8 @@ test("empty stream assignments show empty-state", async ({ page }) => {
         reasons: {},
       },
       streamDetails: [],
+      liveThresholdSeconds: 12,
+      recommendedPollMs: 4000,
       recommendations: ["No authorized streams for this account."],
     },
   });
@@ -208,9 +189,8 @@ test("health unauthorized expires session", async ({ page }) => {
       displayName: "Viewer",
       streams: [{ id: "mystream", name: "Main Entrance" }],
     },
-    healthStatus: 401,
-    healthBody: { error: "unauthorized" },
-    systemStatus: 200,
+    systemStatus: 401,
+    systemBody: { error: "unauthorized" },
   });
 
   await page.goto("/");
