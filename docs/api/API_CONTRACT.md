@@ -16,6 +16,10 @@ This document defines the API/response fields that must remain backward compatib
   - `streams: Array<{ id: string, name: string }>`
 - Error JSON:
   - `error: string`
+- `429 Too Many Requests` after `auth.login.max-attempts` failures for the same
+  username + client address within `auth.login.lockout-seconds`. Carries a
+  `Retry-After` header (seconds) and the usual `error` body. A successful login
+  clears the counter.
 
 ### `GET /api/auth/me`
 
