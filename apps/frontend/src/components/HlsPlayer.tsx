@@ -68,7 +68,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
 
   return (
     <div className="hls-player">
-      <video ref={setVideoElement} className="hls-video" controls playsInline crossOrigin="anonymous" />
+      <video ref={setVideoElement} className="hls-video" controls playsInline crossOrigin="use-credentials" />
       <Toolbar status={status} streamId={streamId} />
       <MetricsBoard metrics={metrics} />
       <p className="manifest-text">{manifestUrl}</p>
