@@ -26,6 +26,21 @@
 - `localhost`와 `127.0.0.1`은 서로 다른 Origin
 - `http`와 `https`도 서로 다른 Origin
 
+## 2-1) 개발 서버는 이제 프록시에서 처리됩니다
+
+`apps/frontend/vite.config.ts`의 프록시가 백엔드로 전달할 때 `Origin`을 백엔드 자신의
+주소로 바꿉니다. 따라서 `http://<외부IP>:5174`로 접속해도 Spring 입장에서는 CORS 요청이
+아니게 되어, 아래 3)의 Origin 등록 없이도 로그인/재생이 동작합니다.
+
+브라우저 보호는 그대로 유지됩니다. 브라우저는 여전히 `:5174`를 동일 출처로 보고,
+다른 사이트가 이 API를 읽으려 하면 응답에 CORS 헤더가 없어 차단됩니다.
+
+3)의 절차가 여전히 필요한 경우:
+
+- Vite 프록시를 우회하고 브라우저가 백엔드(`:8081`)로 직접 요청할 때
+  (`VITE_API_BASE_URL` / `VITE_HLS_BASE_URL` 설정 시)
+- 프로덕션에서 정적 빌드를 별도 서버로 서빙할 때
+
 ## 3) 빠른 해결 (dev-up 실행 시)
 
 아래처럼 `API_ALLOWED_ORIGINS`, `HLS_ALLOWED_ORIGINS`에 실제 접속 Origin을 추가해서 실행합니다.
