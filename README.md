@@ -89,7 +89,8 @@ SOURCE_MODE=testsrc ./scripts/dev-up.sh --with-dummy
 
 ```bash
 # backend
-export AUTH_JWT_SECRET='replace-with-long-random-secret-32bytes-min'
+# 32바이트 미만 시크릿은 기동 시 거부됩니다: openssl rand -base64 48
+export AUTH_JWT_SECRET="$(openssl rand -base64 48)"
 export AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
 export API_ALLOWED_ORIGINS='http://localhost:5174,http://127.0.0.1:5174'
 export HLS_ALLOWED_ORIGINS="$API_ALLOWED_ORIGINS"
@@ -103,6 +104,20 @@ MJPEG_URL=http://<device-ip>:81/stream STREAM_ID=mystream ./scripts/mjpeg_to_hls
 npm --prefix apps/frontend run dev
 ```
 
+## 보안 설정
+
+- `AUTH_JWT_SECRET`: 32바이트 이상 필수. 짧으면 기동이 실패합니다.
+- `API_ALLOWED_ORIGINS` / `HLS_ALLOWED_ORIGINS`: 와일드카드(`*`, `*.example.com`) 불가.
+  인증 쿠키를 함께 보내는 CORS라 정확한 Origin만 허용합니다.
+  단, Vite 개발 프록시를 거치는 접속은 프록시가 Origin을 백엔드 자신으로 바꾸므로
+  별도 등록 없이 동작합니다.
+- 로그인 시도 제한(기본 5분 내 10회 실패 시 429, `Retry-After` 포함):
+  `AUTH_LOGIN_MAX_ATTEMPTS`, `AUTH_LOGIN_LOCKOUT_SECONDS`.
+- `/hls/*`는 `<streamId>.m3u8` / `<streamId>_<n>.<ext>` 형태의 단일 경로만 허용하며,
+  하위 디렉터리 요청은 거부됩니다.
+- `scripts/dev-up.sh`는 `AUTH_JWT_SECRET` 미설정 시 머신별 시크릿을 `.run/jwt_secret`에
+  생성합니다(git 제외). 기본 개발 계정을 쓰는 경우 경고를 출력합니다.
+
 ## 자주 막히는 포인트
 
 - `ffmpeg command not found`: `ffmpeg` 설치 후 재실행.
@@ -111,7 +126,8 @@ npm --prefix apps/frontend run dev
 
 ## 참고
 
-- ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/main.cpp` 상단에서 설정합니다.
+- ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/wifi_secrets.h`에 설정합니다
+  (`wifi_secrets.example.h`를 복사해서 사용하며, 이 파일은 git에서 제외됩니다).
 - `AUTH_USERS` 형식: `username:passwordSpec:stream1,stream2`
 
 ## 품질 게이트
