@@ -4,7 +4,7 @@
 
 ## Ubuntu 서버 기준 빠른 시작
 
-프로젝트 루트: `/home/juno/Workspace/CCTV_Streaming`
+경로는 모두 프로젝트 루트 기준입니다.
 
 ### 1) 의존성 설치
 
@@ -43,17 +43,25 @@ pio --version
 
 ### 3) Wi-Fi 설정
 
-현재 방식(직접 하드코딩): `main.cpp` 상단의 값을 수정하세요.
+자격증명은 git에서 제외되는 `wifi_secrets.h`에 둡니다. `main.cpp`에는 절대 넣지 마세요.
+
+```bash
+cp wifi_secrets.example.h wifi_secrets.h
+```
 
 ```cpp
+// wifi_secrets.h
 #define WIFI_SSID "YOUR_WIFI_SSID"
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 ```
 
+`wifi_secrets.h`가 없으면 펌웨어는 placeholder로 빌드되고, 부팅 시 시리얼에
+설정 안내를 출력한 뒤 Wi-Fi 연결을 시도하지 않습니다.
+
 ### 4) 빌드
 
 ```bash
-cd /home/juno/Workspace/CCTV_Streaming/apps/cctv/device
+cd apps/cctv/device
 pio run -e esp32cam
 ```
 
@@ -94,14 +102,14 @@ ESP32-CAM 보드에서 다음 순서로 부트 모드 진입:
 ### 4) 업로드
 
 ```bash
-cd /home/juno/Workspace/CCTV_Streaming/apps/cctv/device
+cd apps/cctv/device
 pio run -e esp32cam -t upload --upload-port /dev/ttyUSB0
 ```
 
 ### 5) 시리얼 모니터
 
 ```bash
-cd /home/juno/Workspace/CCTV_Streaming/apps/cctv/device
+cd apps/cctv/device
 pio device monitor -b 115200 --port /dev/ttyUSB0
 ```
 
