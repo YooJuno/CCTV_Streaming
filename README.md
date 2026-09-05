@@ -24,12 +24,13 @@ ESP32-CAM(MJPEG) -> ffmpeg(HLS) -> Spring Boot(/hls + /api) -> React(hls.js)
 
 ## 실행 순서
 
-프로젝트 루트(`/home/juno/Workspace/CCTV_Streaming`) 기준:
+모든 명령은 프로젝트 루트 기준입니다.
 
 1) 백엔드 실행
 
 ```bash
-export AUTH_JWT_SECRET='replace-with-long-random-secret-32bytes-min'
+# 32바이트 미만 시크릿은 기동 시 거부됩니다: openssl rand -base64 48
+export AUTH_JWT_SECRET="$(openssl rand -base64 48)"
 export AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
 # Optional: if frontend origin is not localhost:5174, allow it explicitly.
 # Example: http://122.45.250.216:5174
@@ -93,6 +94,16 @@ PID/로그:
 - PID: `.run/pids`
 - 로그: `.run/logs`
 
+## 보안 설정
+
+- `AUTH_JWT_SECRET`: 32바이트 이상 필수. 짧으면 기동이 실패합니다.
+- `API_ALLOWED_ORIGINS` / `HLS_ALLOWED_ORIGINS`: 와일드카드(`*`, `*.example.com`) 불가.
+  인증 쿠키를 함께 보내는 CORS라 정확한 Origin만 허용합니다.
+- 로그인 시도 제한(기본 5분 내 10회 실패 시 429):
+  `AUTH_LOGIN_MAX_ATTEMPTS`, `AUTH_LOGIN_LOCKOUT_SECONDS`.
+- `/hls/*`는 `<streamId>.m3u8` / `<streamId>_<n>.<ext>` 형태의 단일 경로만 허용하며,
+  하위 디렉터리 요청은 거부됩니다.
+
 ## 로그인 계정 (기본)
 
 백엔드는 더 이상 코드에 기본 계정을 하드코딩하지 않습니다.
@@ -114,7 +125,8 @@ PID/로그:
 FRAMERATE=15 KEYINT=15 HLS_TIME=1 HLS_LIST_SIZE=4 ./scripts/dev-up.sh --with-dummy
 ```
 
-ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/main.cpp` 상단에서 직접 설정합니다.
+ESP32-CAM Wi-Fi 자격증명은 `apps/cctv/device/wifi_secrets.h`에 설정합니다
+(`wifi_secrets.example.h`를 복사해서 사용하며, 이 파일은 git에서 제외됩니다).
 
 ## 운영 팁
 
