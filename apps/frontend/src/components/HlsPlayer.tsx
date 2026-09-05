@@ -372,7 +372,9 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
 
   return (
     <div className="hls-player">
-      <video ref={videoRef} className="hls-video" controls playsInline crossOrigin="anonymous" />
+      {/* use-credentials, not anonymous: the auth cookie must ride along on native HLS
+          (Safari/iOS) requests when the HLS origin differs from the page origin. */}
+      <video ref={videoRef} className="hls-video" controls playsInline crossOrigin="use-credentials" />
 
       <div className="hls-toolbar">
         <StatusBadge status={status} />
