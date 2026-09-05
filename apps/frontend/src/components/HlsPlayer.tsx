@@ -46,6 +46,9 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
 
     let disposed = false;
     let hls: HlsType | null = null;
+    // `hls === null` is ambiguous: it means both "native HLS playback" and "the instance was
+    // destroyed by a fatal error". Only the first should be reloaded through the video element.
+    let usingNativeHls = false;
     let retryTimer: number | null = null;
     let statsTimer: number | null = null;
     let stallWatchdogTimer: number | null = null;
@@ -100,12 +103,26 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     const markPlaying = () => {
       markProgress();
       setStatus("playing");
+      // hls.js re-emits MANIFEST_PARSED only for a fresh loadSource, so a stream recovered by
+      // startLoad() would otherwise keep its stale error text and never give back its retry
+      // budget -- a few transient blips would permanently exhaust MAX_NETWORK_RETRIES.
+      setErrorMessage(null);
+      retryCount = 0;
+      notFoundRetryCount = 0;
+      mediaRecoveryCount = 0;
       updateMetrics();
     };
     const markVideoError = () => {
       setStatus("video error");
       setErrorMessage("Video element reported an error.");
       updateMetrics();
+    };
+
+    const stopWatchdog = () => {
+      if (stallWatchdogTimer !== null) {
+        window.clearInterval(stallWatchdogTimer);
+        stallWatchdogTimer = null;
+      }
     };
 
     const cleanupVideo = () => {
@@ -118,7 +135,19 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     };
 
     const tryPlay = () => {
-      video.play().then(() => setStatus("playing")).catch(() => setStatus("ready"));
+      // Teardown itself rejects this promise (cleanupVideo pauses the element), so an unguarded
+      // handler would land after the replacement effect had already set its own status.
+      video.play()
+        .then(() => {
+          if (!disposed) {
+            setStatus("playing");
+          }
+        })
+        .catch(() => {
+          if (!disposed) {
+            setStatus("ready");
+          }
+        });
     };
 
     const scheduleReload = (delayMs: number, message: string) => {
@@ -127,6 +156,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       setMetrics((prev) => ({ ...prev, retryCount: retryCount + notFoundRetryCount }));
       clearRetryTimer();
       retryTimer = window.setTimeout(() => {
+        retryTimer = null;
         if (!disposed && hls) {
           hls.startLoad();
         }
@@ -138,6 +168,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       setErrorMessage(message);
       clearRetryTimer();
       retryTimer = window.setTimeout(() => {
+        retryTimer = null;
         if (disposed) {
           return;
         }
@@ -157,6 +188,11 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
     statsTimer = window.setInterval(updateMetrics, 1000);
     stallWatchdogTimer = window.setInterval(() => {
       if (disposed) {
+        return;
+      }
+      // A recovery is already scheduled. Re-entering here would cancel it via clearRetryTimer()
+      // and burn another slot of the reload budget every second.
+      if (retryTimer !== null) {
         return;
       }
       if (video.paused || video.ended) {
@@ -198,7 +234,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
         return;
       }
 
-      if (!hls && stallRecoveryAttempts <= MAX_STALL_RECOVERY_ATTEMPTS) {
+      if (usingNativeHls && stallRecoveryAttempts <= MAX_STALL_RECOVERY_ATTEMPTS) {
         setStatus("network retry");
         setErrorMessage(
           `Playback stalled. Reloading native HLS... (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
@@ -208,14 +244,25 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
         video.removeAttribute("src");
         video.load();
         video.src = src;
-        void video.play().catch(() => setStatus("ready"));
+        void video.play().catch(() => {
+          if (!disposed) {
+            setStatus("ready");
+          }
+        });
         lastProgressAtMs = Date.now();
+        return;
+      }
+
+      if (!hls && !usingNativeHls) {
+        // A fatal error already tore the player down and explained why. Leave that message up.
+        stopWatchdog();
         return;
       }
 
       if (hls && fatalReloadCount < MAX_FATAL_RELOADS) {
         fatalReloadCount += 1;
         const delayMs = Math.min(15000, FATAL_RELOAD_BASE_DELAY_MS * fatalReloadCount);
+        lastProgressAtMs = Date.now();
         scheduleFullReload(
           delayMs,
           `Playback repeatedly stalled. Reinitializing player (${fatalReloadCount}/${MAX_FATAL_RELOADS})...`,
@@ -223,6 +270,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
         return;
       }
 
+      stopWatchdog();
       setStatus("fatal error");
       setErrorMessage("Playback repeatedly stalled. Please restart stream source.");
     }, STALL_WATCHDOG_INTERVAL_MS);
@@ -235,6 +283,7 @@ export default function HlsPlayer({ streamId }: HlsPlayerProps) {
       const ctor = module.default;
       if (!ctor.isSupported()) {
         if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          usingNativeHls = true;
           video.src = manifestUrl;
           setStatus("ready");
           setErrorMessage(null);
