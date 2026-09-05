@@ -18,6 +18,9 @@ import java.util.Set;
 
 @Service
 public class JwtService {
+    /** HS256 minimum key length. */
+    static final int MIN_KEY_BYTES = 32;
+
     @Value("${auth.jwt.secret:}")
     private String secret;
 
@@ -75,7 +78,7 @@ public class JwtService {
         return cachedSigningKey;
     }
 
-    private static SecretKey createSigningKey(String secret) {
+    static SecretKey createSigningKey(String secret) {
         // Treat long secrets as raw text; if the secret looks base64, decode it.
         byte[] keyBytes;
         if (looksLikeBase64(secret)) {
@@ -87,7 +90,14 @@ public class JwtService {
         } else {
             keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         }
-        return Keys.hmacShaKeyFor(normalizeKeyLength(keyBytes));
+        // HS256 needs >= 32 bytes of key material. Stretching a short secret to 32 bytes
+        // would keep the original (low) entropy while hiding the weakness, so reject it.
+        if (keyBytes.length < MIN_KEY_BYTES) {
+            throw new IllegalStateException(
+                    "auth.jwt.secret is too short: " + keyBytes.length + " bytes, need at least "
+                            + MIN_KEY_BYTES + ". Generate one with: openssl rand -base64 48");
+        }
+        return Keys.hmacShaKeyFor(keyBytes);
     }
 
     private static boolean looksLikeBase64(String value) {
@@ -106,20 +116,5 @@ public class JwtService {
                 .map(String.class::cast)
                 .filter(value -> !value.isBlank())
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
-    }
-
-    private static byte[] normalizeKeyLength(byte[] bytes) {
-        // HS256 requires >= 32 bytes.
-        if (bytes.length >= 32) {
-            return bytes;
-        }
-        if (bytes.length == 0) {
-            bytes = "default-jwt-secret-change-me".getBytes(StandardCharsets.UTF_8);
-        }
-        byte[] normalized = new byte[32];
-        for (int i = 0; i < normalized.length; i++) {
-            normalized[i] = bytes[i % bytes.length];
-        }
-        return normalized;
     }
 }
