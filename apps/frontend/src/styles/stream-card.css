@@ -1,0 +1,171 @@
+.stream-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(410px, 1fr));
+  gap: 15px;
+  margin-top: 6px;
+}
+
+.stream-card {
+  position: relative;
+  padding: 16px;
+  border: 1px solid rgba(194, 211, 231, 0.92);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(244, 251, 255, 0.88));
+  box-shadow: var(--shadow-md);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+  animation: rise-in 500ms ease-out;
+}
+
+.stream-grid .stream-card:nth-child(2n) {
+  animation-delay: 40ms;
+}
+
+.stream-grid .stream-card:nth-child(3n) {
+  animation-delay: 70ms;
+}
+
+.stream-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.stream-card.tone-live::before {
+  background: linear-gradient(90deg, #14955d, #45c788);
+}
+
+.stream-card.tone-offline::before {
+  background: linear-gradient(90deg, #cd4b44, #f29663);
+}
+
+.stream-card.tone-starting::before {
+  background: linear-gradient(90deg, #be7e25, #eebc5c);
+}
+
+.stream-card.tone-checking::before {
+  background: linear-gradient(90deg, #3a69c9, #43a2df);
+}
+
+.stream-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.stream-card h3 {
+  margin: 0;
+  font-family: "Sora", "Outfit", sans-serif;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.stream-id {
+  margin: 4px 0 0;
+  color: #5a6d86;
+  font-size: 12px;
+}
+
+.stream-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stream-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #edf5ff;
+  color: #4b6079;
+  border: 1px solid #d2deee;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.stream-live-pill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.stream-live-pill.live {
+  color: #0a7748;
+  background: #daf6e8;
+}
+
+.stream-live-pill.live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 999px;
+  background: #0a7748;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.stream-live-pill.offline {
+  color: #a13039;
+  background: #ffe4e8;
+}
+
+.stream-live-pill.starting {
+  color: #85571e;
+  background: #ffedcf;
+}
+
+.stream-live-pill.error {
+  color: #962737;
+  background: #ffe0e6;
+}
+
+.stream-live-pill.checking {
+  color: #47617c;
+  background: #ebf3ff;
+}
+
+.stream-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 220px;
+  border: 1px dashed #bfd2e8;
+  border-radius: 12px;
+  color: #4d617a;
+  background: linear-gradient(165deg, #fcfeff, #f2f8ff);
+  font-size: 13px;
+  text-align: left;
+  padding: 12px;
+}
+
+.stream-placeholder-text {
+  margin: 0;
+  width: 100%;
+}
+
+.stream-command-hint {
+  width: 100%;
+  display: block;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #d2e0f2;
+  background: #eef6ff;
+  color: #34516f;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

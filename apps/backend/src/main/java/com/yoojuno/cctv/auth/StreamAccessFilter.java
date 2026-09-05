@@ -12,14 +12,24 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Locale;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
 public class StreamAccessFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(StreamAccessFilter.class);
-    private static final Pattern SEGMENT_SUFFIX = Pattern.compile("_(\\d+)$");
+    private static final String HLS_PREFIX = "/hls/";
+
+    /**
+     * Files the converter publishes: {@code <streamId>.m3u8} for the manifest and
+     * {@code <streamId>_<index>.<ext>} for segments. Stream ids are restricted to a safe
+     * character set so no path separator or traversal sequence can reach the resource handler.
+     */
+    private static final Pattern MANIFEST_NAME = Pattern.compile("^([A-Za-z0-9][A-Za-z0-9._-]*)\\.m3u8$");
+    private static final Pattern SEGMENT_NAME =
+            Pattern.compile("^([A-Za-z0-9][A-Za-z0-9._-]*?)_\\d+\\.(?:ts|m4s|mp4|aac|vtt)$");
 
     @Override
     protected void doFilterInternal(
@@ -28,7 +38,7 @@ public class StreamAccessFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (path == null || !path.startsWith("/hls/")) {
+        if (path == null || !path.startsWith(HLS_PREFIX)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -40,13 +50,14 @@ public class StreamAccessFilter extends OncePerRequestFilter {
         }
 
         String streamId = extractStreamId(path);
-        if (streamId == null || streamId.isBlank()) {
-            filterChain.doFilter(request, response);
+        if (streamId == null) {
+            log.warn("Rejected malformed HLS path. user={}, path={}", user.username(), path);
+            writeJsonError(response, HttpServletResponse.SC_FORBIDDEN, "invalid stream path");
             return;
         }
 
         Set<String> allowed = user.allowedStreams();
-        if (isAllowedStreamRequest(path, streamId, allowed)) {
+        if (allowed.contains("*") || allowed.contains(streamId)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -56,55 +67,35 @@ public class StreamAccessFilter extends OncePerRequestFilter {
         writeJsonError(response, HttpServletResponse.SC_FORBIDDEN, "stream access denied");
     }
 
+    /**
+     * Resolves the stream id that owns {@code requestPath}, or {@code null} when the path is not a
+     * plain {@code /hls/<file>} request for a manifest or segment. Nested paths are rejected: the
+     * authorization decision must cover the whole path, not just its last segment.
+     */
     static String extractStreamId(String requestPath) {
-        if (requestPath == null || !requestPath.startsWith("/hls/")) {
+        if (requestPath == null || !requestPath.startsWith(HLS_PREFIX)) {
             return null;
         }
-        String relative = requestPath.substring("/hls/".length());
-        if (relative.isBlank()) {
+        String fileName = requestPath.substring(HLS_PREFIX.length());
+        if (fileName.isBlank() || fileName.indexOf('/') >= 0 || fileName.indexOf('\\') >= 0) {
             return null;
         }
-        String fileName = relative;
-        int slashIndex = fileName.lastIndexOf('/');
-        if (slashIndex >= 0) {
-            fileName = fileName.substring(slashIndex + 1);
-        }
-        int dotIndex = fileName.lastIndexOf('.');
-        if (dotIndex > 0) {
-            fileName = fileName.substring(0, dotIndex);
-        }
-        return fileName;
-    }
 
-    private static boolean isAllowedStreamRequest(String path, String streamId, Set<String> allowed) {
-        if (allowed.contains("*") || allowed.contains(streamId)) {
-            return true;
+        Matcher manifest = MANIFEST_NAME.matcher(fileName);
+        if (manifest.matches()) {
+            return manifest.group(1);
         }
-        if (!isSegmentRequest(path)) {
-            return false;
+        Matcher segment = SEGMENT_NAME.matcher(fileName);
+        if (segment.matches()) {
+            return segment.group(1);
         }
-        String normalized = SEGMENT_SUFFIX.matcher(streamId).replaceFirst("");
-        return !normalized.equals(streamId) && allowed.contains(normalized);
-    }
-
-    private static boolean isSegmentRequest(String path) {
-        if (path == null) {
-            return false;
-        }
-        int dotIndex = path.lastIndexOf('.');
-        if (dotIndex < 0 || dotIndex + 1 >= path.length()) {
-            return false;
-        }
-        String extension = path.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
-        return switch (extension) {
-            case "ts", "m4s", "mp4", "aac", "vtt" -> true;
-            default -> false;
-        };
+        return null;
     }
 
     private static void writeJsonError(HttpServletResponse response, int status, String message) throws IOException {
         response.setStatus(status);
         response.setContentType("application/json");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.getWriter().write("{\"error\":\"" + message + "\"}");
     }
 }

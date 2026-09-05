@@ -1,4 +1,4 @@
-import type { AuthResponse, StreamsHealthResponse, StreamsResponse, SystemHealthResponse } from "../types";
+import type { AuthResponse, StreamsResponse, SystemHealthResponse } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "")
@@ -70,13 +70,6 @@ export async function fetchStreams(): Promise<StreamsResponse> {
     method: "GET",
   });
   return parseJsonOrThrow<StreamsResponse>(response);
-}
-
-export async function fetchStreamHealth(): Promise<StreamsHealthResponse> {
-  const response = await fetchOrThrow(`${API_BASE_URL}/api/streams/health`, {
-    method: "GET",
-  });
-  return parseJsonOrThrow<StreamsHealthResponse>(response);
 }
 
 export async function fetchSystemHealth(): Promise<SystemHealthResponse> {

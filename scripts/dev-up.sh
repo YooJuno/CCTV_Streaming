@@ -74,6 +74,10 @@ if ! command -v curl >/dev/null 2>&1; then
   echo "curl not found in PATH"
   exit 1
 fi
+if [ -z "${AUTH_JWT_SECRET:-}" ] && ! command -v openssl >/dev/null 2>&1; then
+  echo "openssl not found in PATH. Install it or export AUTH_JWT_SECRET yourself."
+  exit 1
+fi
 
 if [ "$WITH_DUMMY" = true ] && [ -z "$MJPEG_URL" ]; then
   MJPEG_URL="http://127.0.0.1:${DUMMY_PORT}/stream"
@@ -84,9 +88,31 @@ if [ "$WITH_CONVERTER" = true ] && [ -z "$MJPEG_URL" ]; then
   exit 1
 fi
 
-AUTH_JWT_SECRET_VALUE="${AUTH_JWT_SECRET:-dev-jwt-secret-change-me-32-bytes-minimum-value}"
+# A checked-in default secret is a publicly known signing key, and this script happily adds the
+# machine's public IP to the CORS allow-list below. Generate one per machine instead and keep it
+# in .run/ so sessions survive a restart.
+resolve_dev_jwt_secret() {
+  if [ -n "${AUTH_JWT_SECRET:-}" ]; then
+    echo "$AUTH_JWT_SECRET"
+    return 0
+  fi
+  ensure_run_dirs
+  local secret_file="$RUN_DIR/jwt_secret"
+  if [ ! -s "$secret_file" ]; then
+    ( umask 077 && openssl rand -base64 48 | tr -d '\n' > "$secret_file" )
+    # stdout of this function is the secret itself, so status goes to stderr.
+    log "Generated a local dev JWT secret: $secret_file" >&2
+  fi
+  cat "$secret_file"
+}
+
+AUTH_JWT_SECRET_VALUE="$(resolve_dev_jwt_secret)"
 DEFAULT_AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
 AUTH_USERS_VALUE="${AUTH_USERS:-$DEFAULT_AUTH_USERS}"
+if [ -z "${AUTH_USERS:-}" ]; then
+  log "WARNING: using built-in dev accounts (admin/admin123, viewer/viewer123)."
+  log "         Set AUTH_USERS before exposing this host to a network you do not control."
+fi
 API_ALLOWED_ORIGINS_VALUE="${API_ALLOWED_ORIGINS:-http://localhost:5174,http://127.0.0.1:5174}"
 HLS_ALLOWED_ORIGINS_VALUE="${HLS_ALLOWED_ORIGINS:-$API_ALLOWED_ORIGINS_VALUE}"
 VITE_PROXY_TARGET_VALUE="${VITE_PROXY_TARGET:-http://127.0.0.1:8081}"
@@ -144,11 +170,27 @@ detect_public_ip() {
   return 1
 }
 
-if [ -z "${API_ALLOWED_ORIGINS:-}" ]; then
-  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
-  if [ -z "$LAN_IP" ]; then
-    LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+# `ip route` and `hostname -I` are Linux-only; macOS resolves the default route differently.
+detect_lan_ip() {
+  local ip=""
+  if command -v ip >/dev/null 2>&1; then
+    ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
   fi
+  if [ -z "$ip" ] && command -v route >/dev/null 2>&1 && command -v ipconfig >/dev/null 2>&1; then
+    local iface
+    iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}' || true)"
+    if [ -n "$iface" ]; then
+      ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+    fi
+  fi
+  if [ -z "$ip" ]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  echo "$ip"
+}
+
+if [ -z "${API_ALLOWED_ORIGINS:-}" ]; then
+  LAN_IP="$(detect_lan_ip)"
   if [ -n "$LAN_IP" ] && [ "$LAN_IP" != "127.0.0.1" ]; then
     API_ALLOWED_ORIGINS_VALUE="$(append_origin_if_missing "$API_ALLOWED_ORIGINS_VALUE" "http://${LAN_IP}:5174")"
   fi
@@ -193,13 +235,13 @@ if [ "$WITH_DUMMY" = true ]; then
     start_service test_stream env \
       STREAM_ID="$STREAM_ID" \
       DUMMY_PORT="$DUMMY_PORT" \
-      bash -lc "cd '$ROOT_DIR' && ./apps/cctv/test/run_test_stream.sh"
+      bash -lc "cd '$ROOT_DIR' && '$ROOT_DIR/apps/cctv/test/run_test_stream.sh'"
   fi
 elif [ "$WITH_CONVERTER" = true ]; then
   start_service converter env \
     MJPEG_URL="$MJPEG_URL" \
     STREAM_ID="$STREAM_ID" \
-    bash -lc "cd '$ROOT_DIR' && ./scripts/mjpeg_to_hls.sh"
+    bash -lc "cd '$ROOT_DIR' && '$ROOT_DIR/scripts/mjpeg_to_hls.sh'"
 fi
 
 wait_for_http "Backend" "http://127.0.0.1:8081/health" 25 || true

@@ -7,8 +7,18 @@
 #include "freertos/semphr.h"
 #include <cstring>
 
-#define WIFI_SSID "JUNO_HOME_2.4G"
-#define WIFI_PASSWORD "juno980220@"
+// Wi-Fi credentials live in wifi_secrets.h, which is git-ignored.
+// Copy wifi_secrets.example.h to wifi_secrets.h and edit it before flashing.
+#if __has_include("wifi_secrets.h")
+#include "wifi_secrets.h"
+#endif
+
+#ifndef WIFI_SSID
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#endif
 
 const char *WIFI_SSID_VALUE = WIFI_SSID;
 const char *WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
@@ -20,6 +30,29 @@ static const uint8_t WIFI_MAX_RECONNECT_FAILURES = 10;
 
 static const uint32_t CAMERA_RECOVERY_COOLDOWN_MS = 3000;
 static const uint8_t STREAM_CAPTURE_FAILURE_LIMIT = 15;
+
+enum class StreamProfile : uint8_t {
+  PROFILE_HIGH,
+  PROFILE_BALANCED,
+  PROFILE_RESILIENT,
+};
+
+static const uint8_t STREAM_HIGH_FPS = 8;
+static const uint8_t STREAM_BALANCED_FPS = 6;
+static const uint8_t STREAM_RESILIENT_FPS = 4;
+static const framesize_t STREAM_HIGH_FRAME_SIZE = FRAMESIZE_CIF;
+static const framesize_t STREAM_BALANCED_FRAME_SIZE = FRAMESIZE_CIF;
+static const framesize_t STREAM_RESILIENT_FRAME_SIZE = FRAMESIZE_QVGA;
+static const int STREAM_HIGH_JPEG_QUALITY = 13;
+static const int STREAM_BALANCED_JPEG_QUALITY = 15;
+static const int STREAM_RESILIENT_JPEG_QUALITY = 20;
+static const int RSSI_RESILIENT_THRESHOLD = -78;
+static const int RSSI_BALANCED_THRESHOLD = -68;
+static const uint32_t STREAM_PROFILE_EVAL_INTERVAL_MS = 5000;
+static volatile uint32_t stream_min_frame_interval_ms = 1000 / STREAM_BALANCED_FPS;
+static const size_t STREAM_PAYLOAD_CHUNK_SIZE = 1024;
+static const uint8_t STREAM_RECV_WAIT_TIMEOUT_SECONDS = 5;
+static const uint8_t STREAM_SEND_WAIT_TIMEOUT_SECONDS = 3;
 
 // AI Thinker pin map
 #define PWDN_GPIO_NUM     32
@@ -76,6 +109,8 @@ static bool wifi_connected_once = false;
 static uint8_t wifi_reconnect_failures = 0;
 static uint32_t last_wifi_reconnect_attempt_ms = 0;
 static uint32_t last_camera_recovery_ms = 0;
+static StreamProfile active_stream_profile = StreamProfile::PROFILE_BALANCED;
+static uint32_t last_stream_profile_eval_ms = 0;
 
 static bool usingPlaceholderCredentials() {
   return strcmp(WIFI_SSID_VALUE, "YOUR_WIFI_SSID") == 0 || strcmp(WIFI_PASSWORD_VALUE, "YOUR_WIFI_PASSWORD") == 0;
@@ -89,6 +124,123 @@ static bool initSynchronizationPrimitives() {
     stream_client_mutex = xSemaphoreCreateMutex();
   }
   return camera_mutex != nullptr && stream_client_mutex != nullptr;
+}
+
+static uint32_t fpsToIntervalMs(uint8_t fps) {
+  if (fps == 0) {
+    return 250;
+  }
+  return 1000 / fps;
+}
+
+static const char *streamProfileName(StreamProfile profile) {
+  switch (profile) {
+    case StreamProfile::PROFILE_HIGH:
+      return "HIGH";
+    case StreamProfile::PROFILE_BALANCED:
+      return "BALANCED";
+    case StreamProfile::PROFILE_RESILIENT:
+      return "RESILIENT";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static StreamProfile selectStreamProfileForRssi(int rssi) {
+  if (rssi <= RSSI_RESILIENT_THRESHOLD) {
+    return StreamProfile::PROFILE_RESILIENT;
+  }
+  if (rssi <= RSSI_BALANCED_THRESHOLD) {
+    return StreamProfile::PROFILE_BALANCED;
+  }
+  return StreamProfile::PROFILE_HIGH;
+}
+
+static bool applyStreamProfile(StreamProfile profile, bool force) {
+  if (!force && profile == active_stream_profile) {
+    return true;
+  }
+
+  uint8_t target_fps = STREAM_BALANCED_FPS;
+  framesize_t target_frame_size = STREAM_BALANCED_FRAME_SIZE;
+  int target_quality = STREAM_BALANCED_JPEG_QUALITY;
+
+  switch (profile) {
+    case StreamProfile::PROFILE_HIGH:
+      target_fps = STREAM_HIGH_FPS;
+      target_frame_size = STREAM_HIGH_FRAME_SIZE;
+      target_quality = STREAM_HIGH_JPEG_QUALITY;
+      break;
+    case StreamProfile::PROFILE_BALANCED:
+      target_fps = STREAM_BALANCED_FPS;
+      target_frame_size = STREAM_BALANCED_FRAME_SIZE;
+      target_quality = STREAM_BALANCED_JPEG_QUALITY;
+      break;
+    case StreamProfile::PROFILE_RESILIENT:
+      target_fps = STREAM_RESILIENT_FPS;
+      target_frame_size = STREAM_RESILIENT_FRAME_SIZE;
+      target_quality = STREAM_RESILIENT_JPEG_QUALITY;
+      break;
+  }
+
+  if (!psramFound()) {
+    target_frame_size = STREAM_RESILIENT_FRAME_SIZE;
+    if (target_quality < STREAM_RESILIENT_JPEG_QUALITY) {
+      target_quality = STREAM_RESILIENT_JPEG_QUALITY;
+    }
+    if (target_fps > STREAM_BALANCED_FPS) {
+      target_fps = STREAM_BALANCED_FPS;
+    }
+    if (profile == StreamProfile::PROFILE_HIGH) {
+      profile = StreamProfile::PROFILE_BALANCED;
+    }
+  }
+
+  if (xSemaphoreTake(camera_mutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+    return false;
+  }
+
+  bool applied = false;
+  if (camera_initialized) {
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (sensor != nullptr) {
+      sensor->set_framesize(sensor, target_frame_size);
+      sensor->set_quality(sensor, target_quality);
+      applied = true;
+    }
+  } else {
+    applied = true;
+  }
+
+  if (applied) {
+    stream_min_frame_interval_ms = fpsToIntervalMs(target_fps);
+    active_stream_profile = profile;
+  }
+  xSemaphoreGive(camera_mutex);
+
+  if (applied) {
+    Serial.printf(
+        "[INFO] Stream profile=%s rssi=%d fps=%u quality=%d frameSize=%d\n",
+        streamProfileName(active_stream_profile),
+        WiFi.RSSI(),
+        target_fps,
+        target_quality,
+        static_cast<int>(target_frame_size));
+  }
+  return applied;
+}
+
+static void maintainAdaptiveStreamProfile() {
+  if (WiFi.status() != WL_CONNECTED || !camera_initialized) {
+    return;
+  }
+  uint32_t now = millis();
+  if (now - last_stream_profile_eval_ms < STREAM_PROFILE_EVAL_INTERVAL_MS) {
+    return;
+  }
+  last_stream_profile_eval_ms = now;
+  StreamProfile target_profile = selectStreamProfileForRssi(WiFi.RSSI());
+  (void)applyStreamProfile(target_profile, false);
 }
 
 static camera_config_t buildCameraConfig() {
@@ -115,12 +267,18 @@ static camera_config_t buildCameraConfig() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 10;
+    config.frame_size = STREAM_BALANCED_FRAME_SIZE;
+    config.jpeg_quality = STREAM_BALANCED_JPEG_QUALITY;
     config.fb_count = 2;
+#if defined(CAMERA_GRAB_LATEST)
+    config.grab_mode = CAMERA_GRAB_LATEST;
+#endif
+#if defined(CAMERA_FB_IN_PSRAM)
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+#endif
   } else {
-    config.frame_size = FRAMESIZE_CIF;
-    config.jpeg_quality = 12;
+    config.frame_size = STREAM_RESILIENT_FRAME_SIZE;
+    config.jpeg_quality = STREAM_RESILIENT_JPEG_QUALITY;
     config.fb_count = 1;
   }
   return config;
@@ -133,6 +291,18 @@ static bool initCameraUnlocked() {
     Serial.printf("Camera init failed: 0x%x\n", err);
     camera_initialized = false;
     return false;
+  }
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (sensor != nullptr) {
+    sensor->set_framesize(sensor, psramFound() ? STREAM_BALANCED_FRAME_SIZE : STREAM_RESILIENT_FRAME_SIZE);
+    sensor->set_quality(sensor, psramFound() ? STREAM_BALANCED_JPEG_QUALITY : STREAM_RESILIENT_JPEG_QUALITY);
+  }
+  if (psramFound()) {
+    active_stream_profile = StreamProfile::PROFILE_BALANCED;
+    stream_min_frame_interval_ms = fpsToIntervalMs(STREAM_BALANCED_FPS);
+  } else {
+    active_stream_profile = StreamProfile::PROFILE_RESILIENT;
+    stream_min_frame_interval_ms = fpsToIntervalMs(STREAM_RESILIENT_FPS);
   }
   camera_initialized = true;
   return true;
@@ -239,7 +409,7 @@ static void releaseJpegFrame(JpegFrame &frame) {
 static void logWiFiConfigWarning() {
   if (usingPlaceholderCredentials()) {
     Serial.println("[ERROR] WIFI_SSID/WIFI_PASSWORD are placeholders.");
-    Serial.println("Set WIFI_SSID/WIFI_PASSWORD in main.cpp.");
+    Serial.println("Copy wifi_secrets.example.h to wifi_secrets.h and set your credentials.");
   }
 }
 
@@ -249,7 +419,12 @@ static bool connectWiFi(uint32_t timeout_ms) {
   }
 
   WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);
+#if defined(WIFI_POWER_19_5dBm)
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+#endif
   WiFi.disconnect(false, true);
   delay(100);
   WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
@@ -315,14 +490,36 @@ static esp_err_t health_handler(httpd_req_t *req) {
   String ip = WiFi.localIP().toString();
   const char *wifi = WiFi.status() == WL_CONNECTED ? "true" : "false";
   const char *cam = camera_initialized ? "true" : "false";
-  char body[256];
+  const char *profile = streamProfileName(active_stream_profile);
+  uint32_t interval_ms = stream_min_frame_interval_ms;
+  uint32_t target_fps = interval_ms > 0 ? 1000 / interval_ms : 0;
+  char body[320];
   int written = snprintf(body, sizeof(body),
-      "{\"wifiConnected\":%s,\"cameraInitialized\":%s,\"ip\":\"%s\",\"rssi\":%d}",
-      wifi, cam, ip.c_str(), WiFi.RSSI());
+      "{\"wifiConnected\":%s,\"cameraInitialized\":%s,\"ip\":\"%s\",\"rssi\":%d,\"streamProfile\":\"%s\",\"targetFps\":%u}",
+      wifi, cam, ip.c_str(), WiFi.RSSI(), profile, target_fps);
   if (written < 0 || static_cast<size_t>(written) >= sizeof(body)) {
     return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "format error");
   }
   return httpd_resp_send(req, body, written);
+}
+
+static esp_err_t sendFramePayload(httpd_req_t *req, const uint8_t *data, size_t length) {
+  if (data == nullptr || length == 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  size_t offset = 0;
+  while (offset < length) {
+    size_t chunk_size = length - offset;
+    if (chunk_size > STREAM_PAYLOAD_CHUNK_SIZE) {
+      chunk_size = STREAM_PAYLOAD_CHUNK_SIZE;
+    }
+    esp_err_t res = httpd_resp_send_chunk(req, reinterpret_cast<const char *>(data + offset), chunk_size);
+    if (res != ESP_OK) {
+      return res;
+    }
+    offset += chunk_size;
+  }
+  return ESP_OK;
 }
 
 static esp_err_t stream_handler(httpd_req_t *req) {
@@ -341,8 +538,15 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
   uint8_t capture_failures = 0;
   char part_buf[64];
+  uint32_t next_frame_due_ms = millis() + stream_min_frame_interval_ms;
 
   while (res == ESP_OK) {
+    uint32_t now_ms = millis();
+    int32_t wait_ms = static_cast<int32_t>(next_frame_due_ms - now_ms);
+    if (wait_ms > 0) {
+      delay(static_cast<uint32_t>(wait_ms));
+    }
+
     if (WiFi.status() != WL_CONNECTED) {
       res = ESP_FAIL;
       break;
@@ -371,7 +575,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       }
     }
     if (res == ESP_OK) {
-      res = httpd_resp_send_chunk(req, reinterpret_cast<const char *>(frame.buf), frame.len);
+      res = sendFramePayload(req, frame.buf, frame.len);
     }
 
     releaseJpegFrame(frame);
@@ -380,7 +584,12 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       Serial.println("[INFO] Stream client disconnected.");
       break;
     }
-    delay(1);
+
+    uint32_t frame_interval_ms = stream_min_frame_interval_ms;
+    if (frame_interval_ms == 0) {
+      frame_interval_ms = 1;
+    }
+    next_frame_due_ms = millis() + frame_interval_ms;
   }
 
   xSemaphoreGive(stream_client_mutex);
@@ -416,8 +625,8 @@ static void startCameraServer() {
   stream_config.server_port = 81;
   stream_config.ctrl_port = config.ctrl_port + 1;
   stream_config.lru_purge_enable = true;
-  stream_config.recv_wait_timeout = 10;
-  stream_config.send_wait_timeout = 10;
+  stream_config.recv_wait_timeout = STREAM_RECV_WAIT_TIMEOUT_SECONDS;
+  stream_config.send_wait_timeout = STREAM_SEND_WAIT_TIMEOUT_SECONDS;
 
   httpd_uri_t stream_uri = {
       .uri = "/stream",
@@ -454,7 +663,15 @@ void setup() {
   pinMode(LED_GPIO_NUM, OUTPUT);
   digitalWrite(LED_GPIO_NUM, LOW);
 
-  logWiFiConfigWarning();
+  if (usingPlaceholderCredentials()) {
+    // Rebooting here would loop forever behind a misleading "connection timeout" message.
+    logWiFiConfigWarning();
+    Serial.println("Halting: no Wi-Fi credentials configured.");
+    while (true) {
+      delay(WIFI_RETRY_DELAY_MS);
+    }
+  }
+
   if (!connectWiFi(WIFI_CONNECT_TIMEOUT_MS)) {
     Serial.println("Wi-Fi connection timeout. Restarting...");
     delay(WIFI_RETRY_DELAY_MS);
@@ -472,11 +689,17 @@ void setup() {
   Serial.print(ip);
   Serial.println(":81/stream");
 
+  StreamProfile initial_profile = selectStreamProfileForRssi(WiFi.RSSI());
+  if (!applyStreamProfile(initial_profile, true)) {
+    Serial.println("[WARN] Failed to apply initial stream profile.");
+  }
+
   startCameraServer();
   wifi_connected_once = true;
 }
 
 void loop() {
   maintainWiFiConnection();
+  maintainAdaptiveStreamProfile();
   delay(1000);
 }
