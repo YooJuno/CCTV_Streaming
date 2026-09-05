@@ -44,6 +44,8 @@ public class UserAccountService {
 
             String[] parts = entry.split(":", 3);
             if (parts.length < 3) {
+                // Silently dropping entries makes a typo look like a wrong password at login time.
+                log.warn("Skipping malformed auth.users entry (expected username:passwordSpec:streams): '{}'", entry);
                 continue;
             }
 
@@ -52,6 +54,7 @@ public class UserAccountService {
             String streamsRaw = parts[2].trim();
 
             if (username.isBlank() || passwordSpec.isBlank() || streamsRaw.isBlank()) {
+                log.warn("Skipping auth.users entry with an empty field: '{}'", entry);
                 continue;
             }
 
