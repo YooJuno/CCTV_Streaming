@@ -144,11 +144,27 @@ detect_public_ip() {
   return 1
 }
 
-if [ -z "${API_ALLOWED_ORIGINS:-}" ]; then
-  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
-  if [ -z "$LAN_IP" ]; then
-    LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+# `ip route` and `hostname -I` are Linux-only; macOS resolves the default route differently.
+detect_lan_ip() {
+  local ip=""
+  if command -v ip >/dev/null 2>&1; then
+    ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
   fi
+  if [ -z "$ip" ] && command -v route >/dev/null 2>&1 && command -v ipconfig >/dev/null 2>&1; then
+    local iface
+    iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}' || true)"
+    if [ -n "$iface" ]; then
+      ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+    fi
+  fi
+  if [ -z "$ip" ]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  echo "$ip"
+}
+
+if [ -z "${API_ALLOWED_ORIGINS:-}" ]; then
+  LAN_IP="$(detect_lan_ip)"
   if [ -n "$LAN_IP" ] && [ "$LAN_IP" != "127.0.0.1" ]; then
     API_ALLOWED_ORIGINS_VALUE="$(append_origin_if_missing "$API_ALLOWED_ORIGINS_VALUE" "http://${LAN_IP}:5174")"
   fi

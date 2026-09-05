@@ -120,21 +120,29 @@ service_status() {
   return 1
 }
 
+matching_pids() {
+  local pattern="$1"
+  pgrep -f "$pattern" 2>/dev/null | grep -v "^$$\$" || true
+}
+
 kill_matching_processes() {
   local label="$1"
   local pattern="$2"
-  mapfile -t pids < <(pgrep -f "$pattern" || true)
-  if [ "${#pids[@]}" -eq 0 ]; then
+  local pids
+  pids="$(matching_pids "$pattern")"
+  if [ -z "$pids" ]; then
     return 0
   fi
 
-  log "Cleaning up orphan $label processes: ${pids[*]}"
-  kill "${pids[@]}" 2>/dev/null || true
+  log "Cleaning up orphan $label processes: $(echo "$pids" | tr '\n' ' ')"
+  # shellcheck disable=SC2086 # intentional word splitting over the pid list
+  kill $pids 2>/dev/null || true
   sleep 1
 
-  mapfile -t pids < <(pgrep -f "$pattern" || true)
-  if [ "${#pids[@]}" -gt 0 ]; then
-    kill -9 "${pids[@]}" 2>/dev/null || true
+  pids="$(matching_pids "$pattern")"
+  if [ -n "$pids" ]; then
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
   fi
 }
 
@@ -173,7 +181,21 @@ wait_for_file() {
   return 1
 }
 
+# ss is Linux-only; fall back to lsof/netstat so the dev scripts also run on macOS.
 is_port_listening() {
   local port="$1"
-  ss -ltn "( sport = :${port} )" 2>/dev/null | awk 'NR > 1 {found=1} END {exit(found ? 0 : 1)}'
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "( sport = :${port} )" 2>/dev/null | awk 'NR > 1 {found=1} END {exit(found ? 0 : 1)}'
+    return $?
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -an 2>/dev/null | grep -qE "[.:]${port}[[:space:]]+.*LISTEN"
+    return $?
+  fi
+  log "Warning: no ss/lsof/netstat available, cannot check port ${port}."
+  return 1
 }

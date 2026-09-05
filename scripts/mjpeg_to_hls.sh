@@ -38,6 +38,11 @@ log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# GNU stat uses -c, BSD/macOS stat uses -f.
+file_mtime_epoch() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || true
+}
+
 calculate_delay_seconds() {
   local failures="$1"
   local delay_seconds="$RETRY_DELAY_SECONDS"
@@ -199,7 +204,7 @@ while true; do
   while kill -0 "$ffmpeg_pid" 2>/dev/null; do
     now_ts="$(date +%s)"
     if [ -f "$manifest_file" ]; then
-      current_mtime="$(stat -c %Y "$manifest_file" 2>/dev/null || true)"
+      current_mtime="$(file_mtime_epoch "$manifest_file")"
       if [ -n "$current_mtime" ] && [ "$current_mtime" != "$last_mtime" ]; then
         last_mtime="$current_mtime"
         last_update_ts="$now_ts"

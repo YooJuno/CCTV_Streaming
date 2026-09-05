@@ -13,7 +13,13 @@ service_status test_stream || true
 
 echo
 echo "== Port listeners (5174/8081/18081/81) =="
-ss -ltnp | rg '(:5174|:8081|:18081|:81)\b' || true
+if command -v ss >/dev/null 2>&1; then
+  ss -ltnp 2>/dev/null | grep -E '(:5174|:8081|:18081|:81)([^0-9]|$)' || true
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(5174|8081|18081|81)([^0-9]|$)' || true
+else
+  echo "neither ss nor lsof available"
+fi
 
 if command -v curl >/dev/null 2>&1; then
   echo
