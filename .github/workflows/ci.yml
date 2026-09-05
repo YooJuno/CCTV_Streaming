@@ -5,7 +5,9 @@ on:
   push:
     branches:
       - main
+      - dev
       - feat/**
+      - fix/**
       - refactor/**
 
 jobs:
@@ -61,3 +63,17 @@ jobs:
 
       - name: E2E tests
         run: npm run e2e
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n scripts/*.sh apps/cctv/test/*.sh apps/backend/run.sh
+
+      - name: ShellCheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck -S warning scripts/*.sh apps/cctv/test/*.sh
