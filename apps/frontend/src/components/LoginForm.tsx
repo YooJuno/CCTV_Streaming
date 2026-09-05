@@ -6,8 +6,10 @@ interface LoginFormProps {
   onSubmit: (username: string, password: string) => Promise<void>;
 }
 
-const DEFAULT_USERNAME = import.meta.env.VITE_DEFAULT_USERNAME || "";
-const DEFAULT_PASSWORD = import.meta.env.VITE_DEFAULT_PASSWORD || "";
+// Vite inlines VITE_* into the client bundle, so a prefilled password would ship to every
+// visitor of a production build. Honour these convenience defaults in dev only.
+const DEFAULT_USERNAME = import.meta.env.DEV ? import.meta.env.VITE_DEFAULT_USERNAME || "" : "";
+const DEFAULT_PASSWORD = import.meta.env.DEV ? import.meta.env.VITE_DEFAULT_PASSWORD || "" : "";
 
 export default function LoginForm({ loading, errorMessage, onSubmit }: LoginFormProps) {
   const [username, setUsername] = useState(DEFAULT_USERNAME);
