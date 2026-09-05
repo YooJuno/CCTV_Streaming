@@ -15,6 +15,8 @@ public class SystemHealthApiMapper {
                 toHlsStorageStatusResponse(snapshot.hlsStorage()),
                 toStreamHealthSummaryResponse(snapshot.streams()),
                 snapshot.streamDetails(),
+                snapshot.liveThresholdSeconds(),
+                snapshot.recommendedPollMs(),
                 snapshot.recommendations()
         );
     }

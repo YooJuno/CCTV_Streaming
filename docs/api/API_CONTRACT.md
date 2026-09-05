@@ -77,7 +77,13 @@ This document defines the API/response fields that must remain backward compatib
   - `hlsStorage: HlsStorage`
   - `streams: StreamHealthSummary`
   - `streamDetails: Array<StreamHealth>`
+  - `liveThresholdSeconds: number`
+  - `recommendedPollMs: number`
   - `recommendations: string[]`
+
+This response is a superset of `GET /api/streams/health`: it carries the same per-stream
+details plus the polling hints, so a client can stay current with one request per tick
+instead of making the backend scan the HLS directory twice.
 
 `HlsStorage` fields:
 - `path: string`

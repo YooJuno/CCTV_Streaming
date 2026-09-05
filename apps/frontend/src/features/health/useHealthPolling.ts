@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { fetchStreamHealth, fetchSystemHealth } from "../../api/client";
+import { fetchSystemHealth } from "../../api/client";
 import type { AuthSession, StreamHealth } from "../../types";
 import { toErrorMessage } from "../common/httpError";
 
@@ -44,35 +44,27 @@ export default function useHealthPolling(session: AuthSession | null): UseHealth
 
     const fetchHealth = async () => {
       try {
-        const [response, systemHealth] = await Promise.all([
-          queryClient.fetchQuery({
-            queryKey: ["streams-health", session.username],
-            queryFn: fetchStreamHealth,
-            retry: false,
-            staleTime: 0,
-          }),
-          queryClient.fetchQuery({
-            queryKey: ["system-health", session.username],
-            queryFn: fetchSystemHealth,
-            retry: false,
-            staleTime: 0,
-          }),
-        ]);
+        // /api/system/health is a superset of /api/streams/health, so one request per tick is
+        // enough. Polling both made the backend scan the HLS directory twice for the same data.
+        const systemHealth = await queryClient.fetchQuery({
+          queryKey: ["system-health", session.username],
+          queryFn: fetchSystemHealth,
+          retry: false,
+          staleTime: 0,
+        });
         if (cancelled) {
           return;
         }
         const nextMap: Record<string, StreamHealth> = {};
-        for (const item of response.streams) {
+        for (const item of systemHealth.streamDetails) {
           nextMap[item.id] = item;
         }
         setStreamHealthById(nextMap);
-        setLiveThresholdSeconds(response.liveThresholdSeconds);
+        setLiveThresholdSeconds(systemHealth.liveThresholdSeconds);
 
-        const nextPollMs = Math.max(1000, response.recommendedPollMs || DEFAULT_HEALTH_POLL_MS);
+        const nextPollMs = Math.max(1000, systemHealth.recommendedPollMs || DEFAULT_HEALTH_POLL_MS);
         setHealthPollMs(nextPollMs);
         healthPollMsRef.current = nextPollMs;
-
-        queryClient.setQueryData(["system-health", session.username], systemHealth);
 
         setHealthWarning(null);
         consecutiveFailures = 0;
@@ -81,7 +73,13 @@ export default function useHealthPolling(session: AuthSession | null): UseHealth
           return;
         }
         consecutiveFailures += 1;
-        const backoffMs = Math.min(MAX_HEALTH_BACKOFF_MS, healthPollMsRef.current * (consecutiveFailures + 1));
+        // Quote the delay the timer below will actually use; computing it separately here made
+        // the warning understate the wait whenever the tab was hidden.
+        const backoffMs = computeNextPollDelayMs(
+          healthPollMsRef.current,
+          consecutiveFailures,
+          document.visibilityState,
+        );
         const message = toErrorMessage(error, "Failed to check stream health.");
         setHealthWarning(`Health polling delayed (${(backoffMs / 1000).toFixed(1)}s): ${message}`);
       } finally {

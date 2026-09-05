@@ -32,7 +32,8 @@ public class SystemHealthQueryService {
 
     public SystemHealthSnapshot query(AuthenticatedUser user) {
         List<StreamInfo> streams = streamQueryService.authorizedStreams(user);
-        List<StreamHealthService.StreamHealth> streamDetails = streamQueryService.streamHealthSnapshot(user).streams();
+        StreamQueryService.StreamHealthSnapshot health = streamQueryService.streamHealthSnapshot(user);
+        List<StreamHealthService.StreamHealth> streamDetails = health.streams();
         HlsStorageStatus hlsStorage = resolveHlsStorageStatus();
         StreamHealthSummary streamSummary = summarize(streamDetails);
         List<String> recommendations = buildRecommendations(streams, streamSummary, hlsStorage);
@@ -43,6 +44,8 @@ public class SystemHealthQueryService {
                 hlsStorage,
                 streamSummary,
                 streamDetails,
+                health.liveThresholdSeconds(),
+                health.recommendedPollMs(),
                 recommendations
         );
     }
@@ -162,6 +165,8 @@ public class SystemHealthQueryService {
             HlsStorageStatus hlsStorage,
             StreamHealthSummary streams,
             List<StreamHealthService.StreamHealth> streamDetails,
+            long liveThresholdSeconds,
+            long recommendedPollMs,
             List<String> recommendations
     ) {
     }

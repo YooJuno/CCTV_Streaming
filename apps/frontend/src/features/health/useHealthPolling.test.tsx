@@ -2,16 +2,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import useHealthPolling, { computeNextPollDelayMs } from "./useHealthPolling";
 import { createQueryClientWrapper, createTestQueryClient } from "../../test/queryClientWrapper";
-import type { AuthSession, StreamsHealthResponse, SystemHealthResponse } from "../../types";
+import type { AuthSession, StreamHealth, SystemHealthResponse } from "../../types";
 
 vi.mock("../../api/client", () => ({
-  fetchStreamHealth: vi.fn(),
   fetchSystemHealth: vi.fn(),
 }));
 
-import { fetchStreamHealth, fetchSystemHealth } from "../../api/client";
+import { fetchSystemHealth } from "../../api/client";
 
-const mockFetchStreamHealth = vi.mocked(fetchStreamHealth);
 const mockFetchSystemHealth = vi.mocked(fetchSystemHealth);
 
 const SESSION: AuthSession = {
@@ -19,27 +17,22 @@ const SESSION: AuthSession = {
   displayName: "Viewer",
 };
 
-const STREAM_HEALTH_RESPONSE: StreamsHealthResponse = {
-  streams: [
-    {
-      id: "mystream",
-      live: true,
-      manifestExists: true,
-      lastModifiedEpochMs: Date.now(),
-      manifestAgeSeconds: 0,
-      state: "LIVE",
-      reason: "OK",
-      segmentCount: 3,
-      targetDurationSeconds: 1,
-      endList: false,
-      latestSegmentExists: true,
-      latestSegmentSizeBytes: 1024,
-    },
-  ],
-  liveThresholdSeconds: 12,
-  recommendedPollMs: 2000,
-  generatedAtEpochMs: Date.now(),
-};
+const STREAM_DETAILS: StreamHealth[] = [
+  {
+    id: "mystream",
+    live: true,
+    manifestExists: true,
+    lastModifiedEpochMs: Date.now(),
+    manifestAgeSeconds: 0,
+    state: "LIVE",
+    reason: "OK",
+    segmentCount: 3,
+    targetDurationSeconds: 1,
+    endList: false,
+    latestSegmentExists: true,
+    latestSegmentSizeBytes: 1024,
+  },
+];
 
 const SYSTEM_HEALTH_RESPONSE: SystemHealthResponse = {
   generatedAtEpochMs: Date.now(),
@@ -63,7 +56,9 @@ const SYSTEM_HEALTH_RESPONSE: SystemHealthResponse = {
       OK: 1,
     },
   },
-  streamDetails: STREAM_HEALTH_RESPONSE.streams,
+  streamDetails: STREAM_DETAILS,
+  liveThresholdSeconds: 12,
+  recommendedPollMs: 2000,
   recommendations: ["All authorized streams are healthy."],
 };
 
@@ -73,7 +68,6 @@ describe("useHealthPolling", () => {
   });
 
   it("updates stream health and poll interval", async () => {
-    mockFetchStreamHealth.mockResolvedValue(STREAM_HEALTH_RESPONSE);
     mockFetchSystemHealth.mockResolvedValue(SYSTEM_HEALTH_RESPONSE);
     const client = createTestQueryClient();
 
@@ -88,11 +82,12 @@ describe("useHealthPolling", () => {
     expect(result.current.liveThresholdSeconds).toBe(12);
     expect(result.current.healthPollMs).toBe(2000);
     expect(result.current.healthWarning).toBeNull();
+    // One request per tick: /api/system/health already carries the per-stream details.
+    expect(mockFetchSystemHealth).toHaveBeenCalledTimes(1);
   });
 
   it("reports delayed warning after polling failure", async () => {
-    mockFetchStreamHealth.mockRejectedValue(new Error("network timeout"));
-    mockFetchSystemHealth.mockResolvedValue(SYSTEM_HEALTH_RESPONSE);
+    mockFetchSystemHealth.mockRejectedValue(new Error("network timeout"));
     const client = createTestQueryClient();
 
     const { result } = renderHook(() => useHealthPolling(SESSION), {

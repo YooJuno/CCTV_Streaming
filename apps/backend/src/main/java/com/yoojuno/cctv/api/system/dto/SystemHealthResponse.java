@@ -10,6 +10,8 @@ public record SystemHealthResponse(
         HlsStorageStatusResponse hlsStorage,
         StreamHealthSummaryResponse streams,
         List<StreamHealthService.StreamHealth> streamDetails,
+        long liveThresholdSeconds,
+        long recommendedPollMs,
         List<String> recommendations
 ) {
 }
