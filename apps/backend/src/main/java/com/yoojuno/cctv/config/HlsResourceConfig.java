@@ -29,7 +29,7 @@ public class HlsResourceConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/hls/**")
-                .allowedOriginPatterns(hlsAllowedOrigins)
+                .allowedOriginPatterns(CorsOrigins.validate("hls.allowed-origins", hlsAllowedOrigins))
                 .allowedMethods(hlsAllowedMethods)
                 .allowedHeaders("*")
                 .allowCredentials(true)
