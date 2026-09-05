@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Serves a dummy MJPEG stream to emulate ESP32-CAM /stream endpoint.
-# Default source is docs/video.mp4 when available; falls back to ffmpeg test pattern.
+# Default source is docs/media/video.mp4 when available; falls back to ffmpeg test pattern.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-DEFAULT_VIDEO_FILE="$ROOT_DIR/docs/video.mp4"
+# The sample clip moved to docs/media/; keep the old path as a fallback so existing
+# checkouts do not silently drop to the test pattern.
+DEFAULT_VIDEO_FILE="$ROOT_DIR/docs/media/video.mp4"
+if [ ! -f "$DEFAULT_VIDEO_FILE" ] && [ -f "$ROOT_DIR/docs/video.mp4" ]; then
+  DEFAULT_VIDEO_FILE="$ROOT_DIR/docs/video.mp4"
+fi
 SOURCE_MODE="${SOURCE_MODE:-auto}" # auto | testsrc | video
 VIDEO_FILE="${VIDEO_FILE:-}"
 HOST="${HOST:-127.0.0.1}"
