@@ -56,6 +56,8 @@ public class SystemHealthController {
                 hlsStorage,
                 streamSummary,
                 streamDetails,
+                streamHealthService.liveThresholdSeconds(),
+                streamHealthService.recommendedPollMs(),
                 recommendations
         ));
     }
@@ -169,12 +171,19 @@ public class SystemHealthController {
         return new ArrayList<>(output);
     }
 
+    /**
+     * Superset of {@code GET /api/streams/health}: it carries the same per-stream details plus the
+     * polling hints, so a dashboard can stay current with one request instead of two scans of the
+     * HLS directory per tick.
+     */
     public record SystemHealthResponse(
             long generatedAtEpochMs,
             String username,
             HlsStorageStatus hlsStorage,
             StreamHealthSummary streams,
             List<StreamHealthService.StreamHealth> streamDetails,
+            long liveThresholdSeconds,
+            long recommendedPollMs,
             List<String> recommendations
     ) {
     }

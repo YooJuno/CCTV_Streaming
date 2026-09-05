@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchMe, fetchStreamHealth, fetchStreams, fetchSystemHealth, login, logout } from "./api/client";
+import { fetchMe, fetchStreams, fetchSystemHealth, login, logout } from "./api/client";
 import LoginForm from "./components/LoginForm";
 import StreamCard from "./components/StreamCard";
 import type { AuthSession, HlsStorageStatus, StreamHealth, StreamInfo } from "./types";
@@ -175,19 +175,29 @@ export default function App() {
     let timerId: number | null = null;
     let consecutiveFailures = 0;
 
+    // One source of truth for the retry delay: the warning text used to quote a different
+    // number than the timer actually used whenever the tab was hidden.
+    const nextDelayMs = () => {
+      const visibilityMultiplier = document.visibilityState === "hidden" ? 2 : 1;
+      const retryFactor = consecutiveFailures > 0 ? consecutiveFailures + 1 : 1;
+      return Math.min(MAX_HEALTH_BACKOFF_MS, healthPollMsRef.current * retryFactor * visibilityMultiplier);
+    };
+
     const fetchHealth = async () => {
       try {
-        const [response, systemHealth] = await Promise.all([fetchStreamHealth(), fetchSystemHealth()]);
+        // /api/system/health is a superset of /api/streams/health, so one request per tick is
+        // enough. Polling both made the backend scan the HLS directory twice for the same data.
+        const systemHealth = await fetchSystemHealth();
         if (cancelled) {
           return;
         }
         const nextMap: Record<string, StreamHealth> = {};
-        for (const item of response.streams) {
+        for (const item of systemHealth.streamDetails) {
           nextMap[item.id] = item;
         }
         setStreamHealthById(nextMap);
-        setLiveThresholdSeconds(response.liveThresholdSeconds);
-        const nextPollMs = Math.max(1000, response.recommendedPollMs || DEFAULT_HEALTH_POLL_MS);
+        setLiveThresholdSeconds(systemHealth.liveThresholdSeconds);
+        const nextPollMs = Math.max(1000, systemHealth.recommendedPollMs || DEFAULT_HEALTH_POLL_MS);
         setHealthPollMs(nextPollMs);
         healthPollMsRef.current = nextPollMs;
         setSystemRecommendations(systemHealth.recommendations ?? []);
@@ -204,22 +214,14 @@ export default function App() {
           return;
         }
         consecutiveFailures += 1;
-        const backoffMs = Math.min(MAX_HEALTH_BACKOFF_MS, healthPollMsRef.current * (consecutiveFailures + 1));
         const message = error instanceof Error ? error.message : "Failed to check stream health.";
-        setHealthWarning(`Health polling delayed (${(backoffMs / 1000).toFixed(1)}s): ${message}`);
+        setHealthWarning(`Health polling delayed (${(nextDelayMs() / 1000).toFixed(1)}s): ${message}`);
       } finally {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          timerId = window.setTimeout(() => {
+            void fetchHealth();
+          }, nextDelayMs());
         }
-        const visibilityMultiplier = document.visibilityState === "hidden" ? 2 : 1;
-        const retryFactor = consecutiveFailures > 0 ? consecutiveFailures + 1 : 1;
-        const nextDelay = Math.min(
-          MAX_HEALTH_BACKOFF_MS,
-          healthPollMsRef.current * retryFactor * visibilityMultiplier,
-        );
-        timerId = window.setTimeout(() => {
-          void fetchHealth();
-        }, nextDelay);
       }
     };
 

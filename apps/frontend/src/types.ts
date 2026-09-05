@@ -29,13 +29,6 @@ export interface StreamHealth {
   latestSegmentSizeBytes: number;
 }
 
-export interface StreamsHealthResponse {
-  streams: StreamHealth[];
-  liveThresholdSeconds: number;
-  recommendedPollMs: number;
-  generatedAtEpochMs: number;
-}
-
 export interface HlsStorageStatus {
   path: string;
   exists: boolean;
@@ -61,6 +54,8 @@ export interface SystemHealthResponse {
   hlsStorage: HlsStorageStatus;
   streams: StreamHealthSummary;
   streamDetails: StreamHealth[];
+  liveThresholdSeconds: number;
+  recommendedPollMs: number;
   recommendations: string[];
 }
 
