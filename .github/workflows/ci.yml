@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (Gradle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+      - name: Test
+        working-directory: apps/backend
+        run: ./gradlew test --console=plain
+
+  frontend:
+    name: Frontend (Vite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - name: Install
+        working-directory: apps/frontend
+        run: npm ci
+      - name: Typecheck
+        working-directory: apps/frontend
+        run: npm run typecheck
+      - name: Test
+        working-directory: apps/frontend
+        run: npm run test:run
+      - name: Build
+        working-directory: apps/frontend
+        run: npm run build
+
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: bash -n scripts/*.sh apps/cctv/test/*.sh apps/backend/run.sh
+      - name: ShellCheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck -S warning scripts/*.sh apps/cctv/test/*.sh
