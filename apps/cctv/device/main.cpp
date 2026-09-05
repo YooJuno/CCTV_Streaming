@@ -7,8 +7,18 @@
 #include "freertos/semphr.h"
 #include <cstring>
 
-#define WIFI_SSID "JUNO_HOME_2.4G"
-#define WIFI_PASSWORD "juno980220@"
+// Wi-Fi credentials live in wifi_secrets.h, which is git-ignored.
+// Copy wifi_secrets.example.h to wifi_secrets.h and edit it before flashing.
+#if __has_include("wifi_secrets.h")
+#include "wifi_secrets.h"
+#endif
+
+#ifndef WIFI_SSID
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#endif
 
 const char *WIFI_SSID_VALUE = WIFI_SSID;
 const char *WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
@@ -399,7 +409,7 @@ static void releaseJpegFrame(JpegFrame &frame) {
 static void logWiFiConfigWarning() {
   if (usingPlaceholderCredentials()) {
     Serial.println("[ERROR] WIFI_SSID/WIFI_PASSWORD are placeholders.");
-    Serial.println("Set WIFI_SSID/WIFI_PASSWORD in main.cpp.");
+    Serial.println("Copy wifi_secrets.example.h to wifi_secrets.h and set your credentials.");
   }
 }
 
@@ -653,7 +663,15 @@ void setup() {
   pinMode(LED_GPIO_NUM, OUTPUT);
   digitalWrite(LED_GPIO_NUM, LOW);
 
-  logWiFiConfigWarning();
+  if (usingPlaceholderCredentials()) {
+    // Rebooting here would loop forever behind a misleading "connection timeout" message.
+    logWiFiConfigWarning();
+    Serial.println("Halting: no Wi-Fi credentials configured.");
+    while (true) {
+      delay(WIFI_RETRY_DELAY_MS);
+    }
+  }
+
   if (!connectWiFi(WIFI_CONNECT_TIMEOUT_MS)) {
     Serial.println("Wi-Fi connection timeout. Restarting...");
     delay(WIFI_RETRY_DELAY_MS);
