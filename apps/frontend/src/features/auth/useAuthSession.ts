@@ -76,6 +76,7 @@ export default function useAuthSession(): UseAuthSessionResult {
     queryClient.removeQueries({ queryKey: ["streams"] });
     queryClient.removeQueries({ queryKey: ["streams-health"] });
     queryClient.removeQueries({ queryKey: ["system-health"] });
+    queryClient.removeQueries({ queryKey: ["device-settings"] });
   }, [queryClient]);
 
   const handleLogin = useCallback(async (username: string, password: string) => {
@@ -100,15 +101,14 @@ export default function useAuthSession(): UseAuthSessionResult {
   const handleLogout = useCallback(async () => {
     try {
       await logoutMutation.mutateAsync();
-    } catch {
-      // ignore logout API errors and clear local state anyway
-    } finally {
       clearSessionState(null);
+    } catch {
+      setAuthError("로그아웃하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.");
     }
   }, [clearSessionState, logoutMutation]);
 
   const expireSession = useCallback(() => {
-    clearSessionState("Session expired. Please sign in again.");
+    clearSessionState("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.");
   }, [clearSessionState]);
 
   return {

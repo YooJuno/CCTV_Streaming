@@ -11,7 +11,6 @@ STREAM_ID="${STREAM_ID:-mystream}"
 HLS_DIR="${HLS_DIR:-$ROOT_DIR/apps/backend/hls}"
 # ESP32-CAM MJPEG streams can fluctuate heavily in delivered FPS.
 # Keep defaults stability-first to reduce rebuffering on weaker Wi-Fi links.
-INPUT_FRAMERATE="${INPUT_FRAMERATE:-8}"
 FRAMERATE="${FRAMERATE:-6}"
 # Keep keyframe interval aligned with output fps by default.
 # This avoids unintended long HLS segment durations (and extra latency)
@@ -120,6 +119,11 @@ fi
 
 mkdir -p "$HLS_DIR"
 
+if ! [[ "$STREAM_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  echo "Invalid STREAM_ID: use a safe filename containing 1 to 64 characters"
+  exit 1
+fi
+
 if command -v flock >/dev/null 2>&1; then
   mkdir -p "$LOCK_DIR"
   LOCK_NAME="$(echo "$STREAM_ID" | tr -c 'A-Za-z0-9._-' '_')"
@@ -144,7 +148,7 @@ find "$HLS_DIR" -maxdepth 1 -type f \( -name "${STREAM_ID}.m3u8" -o -name "${STR
 log "MJPEG_URL=$MJPEG_URL"
 log "STREAM_ID=$STREAM_ID"
 log "HLS_DIR=$HLS_DIR"
-log "INPUT_FRAMERATE=$INPUT_FRAMERATE"
+log "INPUT_TIMESTAMPS=wallclock (adaptive camera FPS)"
 log "FRAMERATE=$FRAMERATE"
 log "KEYINT=$KEYINT"
 log "HLS_TIME=$HLS_TIME"
@@ -193,7 +197,7 @@ while true; do
     -fflags +discardcorrupt \
     -thread_queue_size "$INPUT_THREAD_QUEUE_SIZE" \
     -rw_timeout "$FFMPEG_RW_TIMEOUT_US" \
-    -r "$INPUT_FRAMERATE" \
+    -use_wallclock_as_timestamps 1 \
     -f mjpeg -i "$MJPEG_URL" \
     -an \
     -r "$FRAMERATE" \

@@ -44,6 +44,7 @@ public class StreamHealthService {
     }
 
     private StreamHealth healthForStream(String streamId) {
+        StreamIds.requireValid(streamId);
         Path manifestPath = Path.of(hlsPath).resolve(streamId + ".m3u8").toAbsolutePath().normalize();
         boolean exists = Files.isRegularFile(manifestPath);
         if (!exists) {
@@ -56,27 +57,27 @@ public class StreamHealthService {
             long ageSeconds = Math.max(0, (Instant.now().toEpochMilli() - lastModifiedEpochMs) / 1000);
             ManifestSnapshot snapshot = readManifestSnapshot(manifestPath);
 
-            if (snapshot.segmentCount() == 0) {
-                return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STARTING, "MANIFEST_NO_SEGMENTS",
-                        snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
-            }
             if (snapshot.endList()) {
                 return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.OFFLINE, "ENDLIST_PRESENT",
-                        snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
-            }
-            if (snapshot.segmentCount() < liveMinSegments) {
-                return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STARTING, "INSUFFICIENT_SEGMENTS",
                         snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
             }
             if (ageSeconds > liveThresholdSeconds) {
                 return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STALE, "MANIFEST_STALE",
                         snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
             }
-            if (snapshot.latestSegmentLocal() && !snapshot.latestSegmentExists()) {
+            if (snapshot.segmentCount() == 0) {
+                return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STARTING, "MANIFEST_NO_SEGMENTS",
+                        snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
+            }
+            if (snapshot.segmentCount() < liveMinSegments) {
+                return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STARTING, "INSUFFICIENT_SEGMENTS",
+                        snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
+            }
+            if (snapshot.missingLocalSegment()) {
                 return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STALE, "SEGMENT_MISSING",
                         snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
             }
-            if (snapshot.latestSegmentLocal() && snapshot.latestSegmentSizeBytes() == 0) {
+            if (snapshot.emptyLocalSegment()) {
                 return new StreamHealth(streamId, false, true, lastModifiedEpochMs, ageSeconds, StreamState.STALE, "SEGMENT_EMPTY",
                         snapshot.segmentCount(), snapshot.targetDurationSeconds(), snapshot.endList(), snapshot.latestSegmentExists(), snapshot.latestSegmentSizeBytes());
             }
@@ -94,6 +95,7 @@ public class StreamHealthService {
         int segmentCount = 0;
         double targetDurationSeconds = 0;
         String latestSegmentRef = null;
+        List<String> segmentRefs = new ArrayList<>();
 
         for (String rawLine : lines) {
             String line = rawLine == null ? "" : rawLine.trim();
@@ -111,22 +113,39 @@ public class StreamHealthService {
             if (!line.startsWith("#")) {
                 segmentCount += 1;
                 latestSegmentRef = line;
+                segmentRefs.add(line);
             }
         }
 
         if (latestSegmentRef == null) {
-            return new ManifestSnapshot(endList, segmentCount, targetDurationSeconds, false, false, -1);
-        }
-
-        if (looksLikeExternalUri(latestSegmentRef)) {
-            return new ManifestSnapshot(endList, segmentCount, targetDurationSeconds, false, true, -1);
+            return new ManifestSnapshot(endList, segmentCount, targetDurationSeconds, false, -1, false, false);
         }
 
         Path manifestDir = manifestPath.getParent() == null ? Path.of(".") : manifestPath.getParent();
-        Path segmentPath = manifestDir.resolve(latestSegmentRef).normalize();
-        boolean exists = Files.isRegularFile(segmentPath);
-        long size = exists ? Files.size(segmentPath) : -1;
-        return new ManifestSnapshot(endList, segmentCount, targetDurationSeconds, true, exists, size);
+        boolean missingLocalSegment = false;
+        boolean emptyLocalSegment = false;
+        boolean latestSegmentExists = false;
+        long latestSegmentSizeBytes = -1;
+        for (String segmentRef : segmentRefs) {
+            boolean exists = true;
+            long size = -1;
+            if (!looksLikeExternalUri(segmentRef)) {
+                Path segmentPath = manifestDir.resolve(segmentRef).normalize();
+                if (!segmentPath.startsWith(manifestDir)) {
+                    throw new IOException("Segment reference is outside the HLS directory.");
+                }
+                exists = Files.isRegularFile(segmentPath);
+                size = exists ? Files.size(segmentPath) : -1;
+                missingLocalSegment |= !exists;
+                emptyLocalSegment |= exists && size == 0;
+            }
+            if (segmentRef.equals(latestSegmentRef)) {
+                latestSegmentExists = exists;
+                latestSegmentSizeBytes = size;
+            }
+        }
+        return new ManifestSnapshot(endList, segmentCount, targetDurationSeconds, latestSegmentExists,
+                latestSegmentSizeBytes, missingLocalSegment, emptyLocalSegment);
     }
 
     private static boolean looksLikeExternalUri(String value) {
@@ -139,7 +158,7 @@ public class StreamHealthService {
     private static double parsePositiveNumber(String raw) {
         try {
             double value = Double.parseDouble(raw.trim());
-            return value < 0 ? 0 : value;
+            return !Double.isFinite(value) || value < 0 ? 0 : value;
         } catch (NumberFormatException ignored) {
             return 0;
         }
@@ -149,9 +168,10 @@ public class StreamHealthService {
             boolean endList,
             int segmentCount,
             double targetDurationSeconds,
-            boolean latestSegmentLocal,
             boolean latestSegmentExists,
-            long latestSegmentSizeBytes
+            long latestSegmentSizeBytes,
+            boolean missingLocalSegment,
+            boolean emptyLocalSegment
     ) {
     }
 

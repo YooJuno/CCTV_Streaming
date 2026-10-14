@@ -1,15 +1,22 @@
 #include <Arduino.h>
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <Preferences.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include "cJSON.h"
 #include "esp_http_server.h"
 #include "img_converters.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <cstring>
+#include <cctype>
+#include <atomic>
+#include <ctime>
 
 // Wi-Fi credentials live in wifi_secrets.h, which is git-ignored.
 // Copy wifi_secrets.example.h to wifi_secrets.h and edit it before flashing.
-#if __has_include("wifi_secrets.h")
+#if !defined(CCTV_FACTORY_BUILD) && __has_include("wifi_secrets.h")
 #include "wifi_secrets.h"
 #endif
 
@@ -20,8 +27,47 @@
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #endif
 
-const char *WIFI_SSID_VALUE = WIFI_SSID;
-const char *WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
+static const char *FIRMWARE_VERSION = "1.0.0";
+static const size_t SERIAL_REQUEST_LIMIT = 8192;
+extern const uint8_t x509_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
+
+struct DeviceConfig {
+  String ssid;
+  String password;
+  String server_url;
+  String stream_id = "mystream";
+  String device_token;
+  String server_ca_pem;
+};
+
+static DeviceConfig device_config;
+static String serial_request;
+static bool serial_request_overflow = false;
+static bool wifi_reconfigure_pending = false;
+static uint32_t wifi_attempt_started_ms = 0;
+static SemaphoreHandle_t config_mutex = nullptr;
+static SemaphoreHandle_t tls_mutex = nullptr;
+static std::atomic<uint32_t> config_generation{0};
+static std::atomic<bool> publishing{false};
+static std::atomic<bool> publisher_claims_camera{false};
+static std::atomic<const char *> publish_message{"Waiting for configuration"};
+static bool ntp_started = false;
+
+struct RemoteProfile {
+  uint8_t fps = 8;
+  framesize_t frame_size = FRAMESIZE_CIF;
+  int jpeg_quality = 13;
+  bool adaptive = true;
+  uint32_t revision = 0;
+};
+static RemoteProfile remote_profile;
+static bool has_remote_profile = false;
+static bool remote_profile_pending = false;
+static std::atomic<uint32_t> applied_revision{0};
+static std::atomic<uint8_t> actual_fps{6};
+static std::atomic<int> actual_frame_size{FRAMESIZE_CIF};
+static std::atomic<int> actual_jpeg_quality{15};
+static std::atomic<bool> actual_adaptive{true};
 
 static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 static const uint32_t WIFI_RETRY_DELAY_MS = 3000;
@@ -112,18 +158,286 @@ static uint32_t last_camera_recovery_ms = 0;
 static StreamProfile active_stream_profile = StreamProfile::PROFILE_BALANCED;
 static uint32_t last_stream_profile_eval_ms = 0;
 
-static bool usingPlaceholderCredentials() {
-  return strcmp(WIFI_SSID_VALUE, "YOUR_WIFI_SSID") == 0 || strcmp(WIFI_PASSWORD_VALUE, "YOUR_WIFI_PASSWORD") == 0;
+static bool hasWiFiConfig() {
+  return !device_config.ssid.isEmpty();
+}
+
+static bool hasControlCharacters(const String &value) {
+  for (size_t i = 0; i < value.length(); ++i) {
+    if (static_cast<uint8_t>(value[i]) < 0x20 || value[i] == 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool validStreamId(const String &value) {
+  if (value.isEmpty() || value.length() > 64 || !isalnum(static_cast<unsigned char>(value[0]))) {
+    return false;
+  }
+  for (size_t i = 1; i < value.length(); ++i) {
+    unsigned char ch = static_cast<unsigned char>(value[i]);
+    if (!isalnum(ch) && ch != '.' && ch != '_' && ch != '-') {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool validServerUrl(const String &value) {
+  if (value.isEmpty() || value.length() > 512 || hasControlCharacters(value)) {
+    return false;
+  }
+  size_t prefix_length = value.startsWith("https://") ? 8 : value.startsWith("http://") ? 7 : 0;
+  if (prefix_length == 0 || value.length() <= prefix_length) {
+    return false;
+  }
+  for (size_t i = prefix_length; i < value.length(); ++i) {
+    if (value[i] == ' ' || value[i] == '@' || value[i] == '\\' || value[i] == '?' || value[i] == '#') {
+      return false;
+    }
+  }
+  String authority = value.substring(prefix_length);
+  int slash = authority.indexOf('/');
+  if (slash >= 0) {
+    authority = authority.substring(0, slash);
+  }
+  if (authority.isEmpty() || authority.indexOf('?') >= 0 || authority.indexOf('#') >= 0) {
+    return false;
+  }
+  // Browser validation also applies; accept DNS/IPv4 and bracketed IPv6 with an optional port.
+  int port_separator = authority.startsWith("[") ? authority.indexOf(':', authority.indexOf(']') + 1) : authority.indexOf(':');
+  if (authority.startsWith("[") && authority.indexOf(']') <= 1) {
+    return false;
+  }
+  String host = port_separator < 0 ? authority : authority.substring(0, port_separator);
+  if (host.isEmpty()) {
+    return false;
+  }
+  if (host.startsWith("[")) {
+    if (!host.endsWith("]")) return false;
+    for (size_t i = 1; i + 1 < host.length(); ++i) {
+      if (!isxdigit(static_cast<unsigned char>(host[i])) && host[i] != ':' && host[i] != '.') return false;
+    }
+  } else {
+    for (size_t i = 0; i < host.length(); ++i) {
+      if (!isalnum(static_cast<unsigned char>(host[i])) && host[i] != '.' && host[i] != '-') return false;
+    }
+  }
+  if (port_separator >= 0) {
+    String port = authority.substring(port_separator + 1);
+    if (port.isEmpty() || port.length() > 5) {
+      return false;
+    }
+    for (size_t i = 0; i < port.length(); ++i) {
+      if (!isdigit(static_cast<unsigned char>(port[i]))) {
+        return false;
+      }
+    }
+    if (port.toInt() < 1 || port.toInt() > 65535) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static const char *jsonString(cJSON *object, const char *key) {
+  cJSON *item = cJSON_GetObjectItemCaseSensitive(object, key);
+  return cJSON_IsString(item) ? item->valuestring : nullptr;
+}
+
+static bool readConfig(cJSON *object, DeviceConfig &config) {
+  const char *ssid = jsonString(object, "ssid");
+  const char *password = jsonString(object, "password");
+  const char *server_url = jsonString(object, "serverUrl");
+  const char *stream_id = jsonString(object, "streamId");
+  const char *device_token = jsonString(object, "deviceToken");
+  const char *server_ca_pem = jsonString(object, "serverCaPem");
+  cJSON *ca_item = cJSON_GetObjectItemCaseSensitive(object, "serverCaPem");
+  if (ca_item != nullptr && !cJSON_IsString(ca_item)) {
+    return false;
+  }
+  if (ssid == nullptr || password == nullptr || server_url == nullptr || stream_id == nullptr || device_token == nullptr) {
+    return false;
+  }
+  config.ssid = ssid;
+  config.password = password;
+  config.server_url = server_url;
+  config.stream_id = stream_id;
+  config.device_token = device_token;
+  config.server_ca_pem = server_ca_pem != nullptr ? server_ca_pem : "";
+  if (config.device_token.length() != 64 || config.server_ca_pem.length() > 4096) {
+    return false;
+  }
+  for (size_t i = 0; i < config.device_token.length(); ++i) {
+    if (!isxdigit(static_cast<unsigned char>(config.device_token[i]))) {
+      return false;
+    }
+  }
+  if (!config.server_ca_pem.isEmpty() && (!config.server_ca_pem.startsWith("-----BEGIN CERTIFICATE-----") ||
+      config.server_ca_pem.indexOf("-----END CERTIFICATE-----") < 0)) {
+    return false;
+  }
+  return !config.ssid.isEmpty() && config.ssid.length() <= 32 && !hasControlCharacters(config.ssid) &&
+      (config.password.isEmpty() || (config.password.length() >= 8 && config.password.length() <= 63)) &&
+      !hasControlCharacters(config.password) && validServerUrl(config.server_url) && validStreamId(config.stream_id);
+}
+
+static void loadDeviceConfig() {
+  Preferences preferences;
+  if (preferences.begin("cctv", true)) {
+    String stored = preferences.getString("config", "");
+    preferences.end();
+    cJSON *object = cJSON_Parse(stored.c_str());
+    DeviceConfig config;
+    if (object != nullptr && readConfig(object, config)) {
+      device_config = config;
+    }
+    cJSON_Delete(object);
+  }
+#if !defined(CCTV_FACTORY_BUILD)
+  if (!hasWiFiConfig() && strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0 && strcmp(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") != 0) {
+    device_config.ssid = WIFI_SSID;
+    device_config.password = WIFI_PASSWORD;
+  }
+#endif
+}
+
+static void sendSerialResponse(const char *request_id, bool ok, const char *message) {
+  cJSON *response = cJSON_CreateObject();
+  if (response == nullptr) {
+    return;
+  }
+  bool connected = !wifi_reconfigure_pending && WiFi.status() == WL_CONNECTED;
+  cJSON_AddStringToObject(response, "type", "cctv.response");
+  cJSON_AddStringToObject(response, "requestId", request_id);
+  cJSON_AddBoolToObject(response, "ok", ok);
+  cJSON_AddStringToObject(response, "message", message);
+  cJSON_AddBoolToObject(response, "configured", hasWiFiConfig());
+  cJSON_AddBoolToObject(response, "wifiConnected", connected);
+  cJSON_AddBoolToObject(response, "cameraInitialized", camera_initialized);
+  cJSON_AddStringToObject(response, "firmwareVersion", FIRMWARE_VERSION);
+  cJSON_AddStringToObject(response, "serverUrl", device_config.server_url.c_str());
+  cJSON_AddStringToObject(response, "streamId", device_config.stream_id.c_str());
+  cJSON_AddBoolToObject(response, "publishing", !wifi_reconfigure_pending && publishing.load());
+  cJSON_AddStringToObject(response, "publishMessage", publish_message.load());
+  cJSON_AddNumberToObject(response, "appliedRevision", applied_revision.load());
+  cJSON_AddNumberToObject(response, "fps", actual_fps.load());
+  const char *frame_size = actual_frame_size.load() == FRAMESIZE_SVGA ? "SVGA" : actual_frame_size.load() == FRAMESIZE_VGA ? "VGA" : actual_frame_size.load() == FRAMESIZE_QVGA ? "QVGA" : "CIF";
+  cJSON_AddStringToObject(response, "frameSize", frame_size);
+  cJSON_AddNumberToObject(response, "jpegQuality", actual_jpeg_quality.load());
+  cJSON_AddBoolToObject(response, "adaptive", actual_adaptive.load());
+  if (connected) {
+    String ip = WiFi.localIP().toString();
+    String stream_url = "http://" + ip + ":81/stream";
+    cJSON_AddStringToObject(response, "ip", ip.c_str());
+    cJSON_AddStringToObject(response, "streamUrl", stream_url.c_str());
+  }
+  char *json = cJSON_PrintUnformatted(response);
+  if (json != nullptr) {
+    Serial.println(json);
+    cJSON_free(json);
+  }
+  cJSON_Delete(response);
+}
+
+static void handleSerialRequest(const String &line) {
+  if (line.indexOf("\\u0000") >= 0) {
+    sendSerialResponse("", false, "NUL characters are not allowed");
+    return;
+  }
+  const char *parse_end = nullptr;
+  cJSON *request = cJSON_ParseWithOpts(line.c_str(), &parse_end, true);
+  if (request == nullptr || !cJSON_IsObject(request)) {
+    cJSON_Delete(request);
+    sendSerialResponse("", false, "Invalid JSON request");
+    return;
+  }
+  const char *request_id = jsonString(request, "requestId");
+  const char *type = jsonString(request, "type");
+  if (request_id == nullptr || strlen(request_id) == 0 || strlen(request_id) > 64 || hasControlCharacters(String(request_id))) {
+    sendSerialResponse("", false, "requestId must contain 1 to 64 bytes");
+  } else if (type != nullptr && strcmp(type, "cctv.status") == 0) {
+    sendSerialResponse(request_id, true, "Device status");
+  } else if (type != nullptr && strcmp(type, "cctv.configure") == 0) {
+    DeviceConfig config;
+    if (!readConfig(request, config)) {
+      sendSerialResponse(request_id, false, "Invalid Wi-Fi, server URL, stream ID, device token, or CA certificate");
+    } else {
+      // Store a single NVS value so a reset cannot persist only part of the configuration.
+      cJSON *stored = cJSON_CreateObject();
+      if (stored != nullptr) {
+        cJSON_AddStringToObject(stored, "ssid", config.ssid.c_str());
+        cJSON_AddStringToObject(stored, "password", config.password.c_str());
+        cJSON_AddStringToObject(stored, "serverUrl", config.server_url.c_str());
+        cJSON_AddStringToObject(stored, "streamId", config.stream_id.c_str());
+        cJSON_AddStringToObject(stored, "deviceToken", config.device_token.c_str());
+        cJSON_AddStringToObject(stored, "serverCaPem", config.server_ca_pem.c_str());
+      }
+      char *encoded = stored != nullptr ? cJSON_PrintUnformatted(stored) : nullptr;
+      Preferences preferences;
+      bool saved = false;
+      if (encoded != nullptr && preferences.begin("cctv", false)) {
+        saved = preferences.putString("config", encoded) == strlen(encoded);
+        preferences.end();
+      }
+      cJSON_free(encoded);
+      cJSON_Delete(stored);
+      if (!saved) {
+        sendSerialResponse(request_id, false, "Unable to save device configuration");
+      } else {
+        xSemaphoreTake(config_mutex, portMAX_DELAY);
+        device_config = config;
+        config_generation.fetch_add(1);
+        has_remote_profile = false;
+        remote_profile_pending = false;
+        xSemaphoreGive(config_mutex);
+        wifi_reconfigure_pending = true;
+        sendSerialResponse(request_id, true, "Configuration saved; connecting to Wi-Fi");
+      }
+    }
+  } else {
+    sendSerialResponse(request_id, false, "Unsupported request type");
+  }
+  cJSON_Delete(request);
+}
+
+static void maintainSerialConfiguration() {
+  while (Serial.available() > 0) {
+    char ch = static_cast<char>(Serial.read());
+    if (ch == '\n') {
+      if (serial_request_overflow) {
+        sendSerialResponse("", false, "Request exceeds 8192 bytes");
+      } else if (!serial_request.isEmpty()) {
+        handleSerialRequest(serial_request);
+      }
+      serial_request = "";
+      serial_request_overflow = false;
+    } else if (ch != '\r' && !serial_request_overflow) {
+      if (serial_request.length() >= SERIAL_REQUEST_LIMIT) {
+        serial_request = "";
+        serial_request_overflow = true;
+      } else {
+        serial_request += ch;
+      }
+    }
+  }
 }
 
 static bool initSynchronizationPrimitives() {
+  if (config_mutex == nullptr) {
+    config_mutex = xSemaphoreCreateMutex();
+  }
+  if (tls_mutex == nullptr) {
+    tls_mutex = xSemaphoreCreateMutex();
+  }
   if (camera_mutex == nullptr) {
     camera_mutex = xSemaphoreCreateMutex();
   }
   if (stream_client_mutex == nullptr) {
     stream_client_mutex = xSemaphoreCreateMutex();
   }
-  return camera_mutex != nullptr && stream_client_mutex != nullptr;
+  return camera_mutex != nullptr && stream_client_mutex != nullptr && config_mutex != nullptr && tls_mutex != nullptr;
 }
 
 static uint32_t fpsToIntervalMs(uint8_t fps) {
@@ -204,9 +518,7 @@ static bool applyStreamProfile(StreamProfile profile, bool force) {
   if (camera_initialized) {
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor != nullptr) {
-      sensor->set_framesize(sensor, target_frame_size);
-      sensor->set_quality(sensor, target_quality);
-      applied = true;
+      applied = sensor->set_framesize(sensor, target_frame_size) == 0 && sensor->set_quality(sensor, target_quality) == 0;
     }
   } else {
     applied = true;
@@ -215,6 +527,9 @@ static bool applyStreamProfile(StreamProfile profile, bool force) {
   if (applied) {
     stream_min_frame_interval_ms = fpsToIntervalMs(target_fps);
     active_stream_profile = profile;
+    actual_fps.store(target_fps);
+    actual_frame_size.store(target_frame_size);
+    actual_jpeg_quality.store(target_quality);
   }
   xSemaphoreGive(camera_mutex);
 
@@ -234,13 +549,63 @@ static void maintainAdaptiveStreamProfile() {
   if (WiFi.status() != WL_CONNECTED || !camera_initialized) {
     return;
   }
+  xSemaphoreTake(config_mutex, portMAX_DELAY);
+  bool use_remote = has_remote_profile;
+  bool pending = remote_profile_pending;
+  RemoteProfile profile = remote_profile;
+  uint32_t generation = config_generation.load();
+  xSemaphoreGive(config_mutex);
   uint32_t now = millis();
-  if (now - last_stream_profile_eval_ms < STREAM_PROFILE_EVAL_INTERVAL_MS) {
+  if (!pending && now - last_stream_profile_eval_ms < STREAM_PROFILE_EVAL_INTERVAL_MS) {
     return;
   }
   last_stream_profile_eval_ms = now;
-  StreamProfile target_profile = selectStreamProfileForRssi(WiFi.RSSI());
-  (void)applyStreamProfile(target_profile, false);
+  StreamProfile signal_profile = selectStreamProfileForRssi(WiFi.RSSI());
+  if (!use_remote) {
+    actual_adaptive.store(true);
+    (void)applyStreamProfile(signal_profile, false);
+    return;
+  }
+  uint8_t fps = profile.fps;
+  framesize_t size = profile.frame_size;
+  int quality = profile.jpeg_quality;
+  if (profile.adaptive) {
+    uint8_t cap = signal_profile == StreamProfile::PROFILE_RESILIENT ? STREAM_RESILIENT_FPS : signal_profile == StreamProfile::PROFILE_BALANCED ? STREAM_BALANCED_FPS : STREAM_HIGH_FPS;
+    framesize_t size_cap = signal_profile == StreamProfile::PROFILE_RESILIENT ? FRAMESIZE_QVGA : signal_profile == StreamProfile::PROFILE_BALANCED ? FRAMESIZE_CIF : profile.frame_size;
+    int quality_floor = signal_profile == StreamProfile::PROFILE_RESILIENT ? STREAM_RESILIENT_JPEG_QUALITY : signal_profile == StreamProfile::PROFILE_BALANCED ? STREAM_BALANCED_JPEG_QUALITY : STREAM_HIGH_JPEG_QUALITY;
+    if (fps > cap) fps = cap;
+    if (size > size_cap) size = size_cap;
+    if (quality < quality_floor) quality = quality_floor;
+  }
+  if (!psramFound()) {
+    size = FRAMESIZE_QVGA;
+    if (fps > STREAM_BALANCED_FPS) fps = STREAM_BALANCED_FPS;
+    if (quality < STREAM_RESILIENT_JPEG_QUALITY) quality = STREAM_RESILIENT_JPEG_QUALITY;
+  }
+  bool changed = fps != actual_fps.load() || size != actual_frame_size.load() || quality != actual_jpeg_quality.load();
+  bool applied = !changed && !pending;
+  if (!applied && xSemaphoreTake(camera_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+    sensor_t *sensor = camera_initialized ? esp_camera_sensor_get() : nullptr;
+    applied = sensor != nullptr && sensor->set_framesize(sensor, size) == 0 && sensor->set_quality(sensor, quality) == 0;
+    if (applied) {
+      stream_min_frame_interval_ms = fpsToIntervalMs(fps);
+      actual_fps.store(fps);
+      actual_frame_size.store(size);
+      actual_jpeg_quality.store(quality);
+      actual_adaptive.store(profile.adaptive);
+      applied_revision.store(profile.revision);
+    }
+    xSemaphoreGive(camera_mutex);
+  }
+  if (applied && (pending || changed)) {
+    xSemaphoreTake(config_mutex, portMAX_DELAY);
+    if (generation == config_generation.load() && remote_profile.revision == profile.revision) {
+      remote_profile_pending = false;
+      // New resolution/FPS starts a new upload so server FFmpeg sees a fresh stream.
+      config_generation.fetch_add(1);
+    }
+    xSemaphoreGive(config_mutex);
+  }
 }
 
 static camera_config_t buildCameraConfig() {
@@ -267,19 +632,18 @@ static camera_config_t buildCameraConfig() {
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
-    config.frame_size = STREAM_BALANCED_FRAME_SIZE;
-    config.jpeg_quality = STREAM_BALANCED_JPEG_QUALITY;
+    // Allocate buffers for the largest remotely selectable frame size.
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 10;
     config.fb_count = 2;
-#if defined(CAMERA_GRAB_LATEST)
     config.grab_mode = CAMERA_GRAB_LATEST;
-#endif
-#if defined(CAMERA_FB_IN_PSRAM)
     config.fb_location = CAMERA_FB_IN_PSRAM;
-#endif
   } else {
     config.frame_size = STREAM_RESILIENT_FRAME_SIZE;
     config.jpeg_quality = STREAM_RESILIENT_JPEG_QUALITY;
     config.fb_count = 1;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.fb_location = CAMERA_FB_IN_DRAM;
   }
   return config;
 }
@@ -305,6 +669,9 @@ static bool initCameraUnlocked() {
     stream_min_frame_interval_ms = fpsToIntervalMs(STREAM_RESILIENT_FPS);
   }
   camera_initialized = true;
+  actual_fps.store(psramFound() ? STREAM_BALANCED_FPS : STREAM_RESILIENT_FPS);
+  actual_frame_size.store(psramFound() ? STREAM_BALANCED_FRAME_SIZE : STREAM_RESILIENT_FRAME_SIZE);
+  actual_jpeg_quality.store(psramFound() ? STREAM_BALANCED_JPEG_QUALITY : STREAM_RESILIENT_JPEG_QUALITY);
   return true;
 }
 
@@ -406,75 +773,54 @@ static void releaseJpegFrame(JpegFrame &frame) {
   frame.must_free = false;
 }
 
-static void logWiFiConfigWarning() {
-  if (usingPlaceholderCredentials()) {
-    Serial.println("[ERROR] WIFI_SSID/WIFI_PASSWORD are placeholders.");
-    Serial.println("Copy wifi_secrets.example.h to wifi_secrets.h and set your credentials.");
-  }
-}
-
-static bool connectWiFi(uint32_t timeout_ms) {
-  if (usingPlaceholderCredentials()) {
-    return false;
-  }
-
-  WiFi.mode(WIFI_STA);
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
-  WiFi.setSleep(false);
-#if defined(WIFI_POWER_19_5dBm)
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-#endif
-  WiFi.disconnect(false, true);
-  delay(100);
-  WiFi.begin(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
-
-  uint32_t start_ms = millis();
-  Serial.printf("Connecting to Wi-Fi SSID: %s", WIFI_SSID_VALUE);
-  while (WiFi.status() != WL_CONNECTED && (millis() - start_ms) < timeout_ms) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  return WiFi.status() == WL_CONNECTED;
-}
+#include "push_publisher.h"
 
 static void maintainWiFiConnection() {
+  if (!hasWiFiConfig()) {
+    return;
+  }
+  uint32_t now = millis();
+  if (wifi_reconfigure_pending) {
+    WiFi.disconnect(false, true);
+    WiFi.begin(device_config.ssid.c_str(), device_config.password.c_str());
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    wifi_reconfigure_pending = false;
+    wifi_connected_once = false;
+    wifi_reconnect_failures = 0;
+    wifi_attempt_started_ms = now;
+    last_wifi_reconnect_attempt_ms = now;
+    Serial.println("Connecting to Wi-Fi with saved configuration.");
+    return;
+  }
   if (WiFi.status() == WL_CONNECTED) {
     if (!wifi_connected_once) {
       wifi_connected_once = true;
       Serial.println("Wi-Fi connected.");
     }
     wifi_reconnect_failures = 0;
+    wifi_attempt_started_ms = 0;
+    if (!ntp_started) {
+      configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
+      ntp_started = true;
+    }
     return;
   }
 
-  if (usingPlaceholderCredentials()) {
+  // Keep USB provisioning responsive while the Wi-Fi driver connects asynchronously.
+  if (wifi_attempt_started_ms != 0 && now - wifi_attempt_started_ms < WIFI_CONNECT_TIMEOUT_MS) {
     return;
   }
-
-  uint32_t now = millis();
   if (now - last_wifi_reconnect_attempt_ms < WIFI_RECONNECT_INTERVAL_MS) {
     return;
   }
   last_wifi_reconnect_attempt_ms = now;
-  Serial.println("[WARN] Wi-Fi disconnected. Attempting reconnect...");
-
-  bool connected = connectWiFi(WIFI_CONNECT_TIMEOUT_MS);
-  if (connected) {
-    wifi_reconnect_failures = 0;
-    Serial.print("Wi-Fi reconnected. IP: ");
-    Serial.println(WiFi.localIP());
-    return;
+  if (wifi_reconnect_failures < WIFI_MAX_RECONNECT_FAILURES) {
+    wifi_reconnect_failures++;
   }
-
-  wifi_reconnect_failures++;
-  Serial.printf("[WARN] Wi-Fi reconnect failed (%u/%u)\n", wifi_reconnect_failures, WIFI_MAX_RECONNECT_FAILURES);
-  if (wifi_reconnect_failures >= WIFI_MAX_RECONNECT_FAILURES) {
-    Serial.println("[ERROR] Too many Wi-Fi reconnect failures. Restarting...");
-    delay(WIFI_RETRY_DELAY_MS);
-    ESP.restart();
-  }
+  Serial.printf("[WARN] Wi-Fi disconnected. Reconnecting (attempt %u); USB configuration remains available.\n", wifi_reconnect_failures);
+  WiFi.disconnect(false, true);
+  WiFi.begin(device_config.ssid.c_str(), device_config.password.c_str());
+  wifi_attempt_started_ms = now;
 }
 
 static esp_err_t index_handler(httpd_req_t *req) {
@@ -523,7 +869,7 @@ static esp_err_t sendFramePayload(httpd_req_t *req, const uint8_t *data, size_t 
 }
 
 static esp_err_t stream_handler(httpd_req_t *req) {
-  if (xSemaphoreTake(stream_client_mutex, 0) != pdTRUE) {
+  if (publisher_claims_camera.load() || xSemaphoreTake(stream_client_mutex, 0) != pdTRUE) {
     httpd_resp_set_status(req, "503 Service Unavailable");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, "{\"error\":\"stream busy\"}", HTTPD_RESP_USE_STRLEN);
@@ -540,7 +886,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   char part_buf[64];
   uint32_t next_frame_due_ms = millis() + stream_min_frame_interval_ms;
 
-  while (res == ESP_OK) {
+  while (res == ESP_OK && !publisher_claims_camera.load()) {
     uint32_t now_ms = millis();
     int32_t wait_ms = static_cast<int32_t>(next_frame_due_ms - now_ms);
     if (wait_ms > 0) {
@@ -592,6 +938,9 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     next_frame_due_ms = millis() + frame_interval_ms;
   }
 
+  if (publisher_claims_camera.load() && res == ESP_OK) {
+    res = ESP_FAIL;
+  }
   xSemaphoreGive(stream_client_mutex);
   return res;
 }
@@ -613,12 +962,14 @@ static void startCameraServer() {
       .handler = health_handler,
       .user_ctx = nullptr};
 
-  esp_err_t index_result = httpd_start(&index_httpd, &config);
-  if (index_result == ESP_OK) {
-    httpd_register_uri_handler(index_httpd, &index_uri);
-    httpd_register_uri_handler(index_httpd, &health_uri);
-  } else {
-    Serial.printf("Failed to start index server: 0x%x\n", index_result);
+  if (index_httpd == nullptr) {
+    esp_err_t index_result = httpd_start(&index_httpd, &config);
+    if (index_result == ESP_OK) {
+      httpd_register_uri_handler(index_httpd, &index_uri);
+      httpd_register_uri_handler(index_httpd, &health_uri);
+    } else {
+      Serial.printf("Failed to start index server: 0x%x\n", index_result);
+    }
   }
 
   httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();
@@ -634,11 +985,13 @@ static void startCameraServer() {
       .handler = stream_handler,
       .user_ctx = nullptr};
 
-  esp_err_t stream_result = httpd_start(&stream_httpd, &stream_config);
-  if (stream_result == ESP_OK) {
-    httpd_register_uri_handler(stream_httpd, &stream_uri);
-  } else {
-    Serial.printf("Failed to start stream server: 0x%x\n", stream_result);
+  if (stream_httpd == nullptr) {
+    esp_err_t stream_result = httpd_start(&stream_httpd, &stream_config);
+    if (stream_result == ESP_OK) {
+      httpd_register_uri_handler(stream_httpd, &stream_uri);
+    } else {
+      Serial.printf("Failed to start stream server: 0x%x\n", stream_result);
+    }
   }
 }
 
@@ -646,6 +999,8 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(false);
   delay(200);
+  loadDeviceConfig();
+  serial_request.reserve(SERIAL_REQUEST_LIMIT);
 
   if (!initSynchronizationPrimitives()) {
     Serial.println("Failed to initialize mutexes. Restarting...");
@@ -655,51 +1010,37 @@ void setup() {
   }
 
   if (!initCamera()) {
-    delay(WIFI_RETRY_DELAY_MS);
-    ESP.restart();
-    return;
+    Serial.println("Camera unavailable; USB configuration remains available while recovery retries.");
   }
 
   pinMode(LED_GPIO_NUM, OUTPUT);
   digitalWrite(LED_GPIO_NUM, LOW);
 
-  if (usingPlaceholderCredentials()) {
-    // Rebooting here would loop forever behind a misleading "connection timeout" message.
-    logWiFiConfigWarning();
-    Serial.println("Halting: no Wi-Fi credentials configured.");
-    while (true) {
-      delay(WIFI_RETRY_DELAY_MS);
-    }
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
+  wifi_reconfigure_pending = hasWiFiConfig();
+  Serial.printf("CCTV firmware %s ready. USB JSON configuration at 115200 baud.\n", FIRMWARE_VERSION);
+  if (!hasWiFiConfig()) {
+    Serial.println("No Wi-Fi configuration; waiting for USB provisioning.");
   }
-
-  if (!connectWiFi(WIFI_CONNECT_TIMEOUT_MS)) {
-    Serial.println("Wi-Fi connection timeout. Restarting...");
-    delay(WIFI_RETRY_DELAY_MS);
-    ESP.restart();
-    return;
+  if (xTaskCreatePinnedToCore(publisherTask, "cctv-publish", 12288, nullptr, 1, nullptr, 0) != pdPASS ||
+      xTaskCreatePinnedToCore(remoteProfileTask, "cctv-profile", 8192, nullptr, 1, nullptr, 0) != pdPASS) {
+    publish_message.store("Unable to start publishing tasks");
+    Serial.println("Unable to start publishing tasks; check available memory.");
   }
-
-  IPAddress ip = WiFi.localIP();
-  Serial.print("Wi-Fi connected. IP address: ");
-  Serial.println(ip);
-  Serial.print("Open http://");
-  Serial.print(ip);
-  Serial.println("/ for status page.");
-  Serial.print("MJPEG stream: http://");
-  Serial.print(ip);
-  Serial.println(":81/stream");
-
-  StreamProfile initial_profile = selectStreamProfileForRssi(WiFi.RSSI());
-  if (!applyStreamProfile(initial_profile, true)) {
-    Serial.println("[WARN] Failed to apply initial stream profile.");
-  }
-
-  startCameraServer();
-  wifi_connected_once = true;
 }
 
 void loop() {
+  maintainSerialConfiguration();
   maintainWiFiConnection();
+  if (!camera_initialized) {
+    (void)recoverCamera("camera unavailable");
+  }
+  if (WiFi.status() == WL_CONNECTED && (index_httpd == nullptr || stream_httpd == nullptr)) {
+    startCameraServer();
+  }
   maintainAdaptiveStreamProfile();
-  delay(1000);
+  delay(10);
 }

@@ -112,4 +112,14 @@ describe("useAuthSession", () => {
 
     expect(result.current.session).toBeNull();
   });
+
+  it("keeps the session when the server cannot clear the login cookie", async () => {
+    mockFetchMe.mockResolvedValue(SAMPLE_AUTH_RESPONSE);
+    mockLogout.mockRejectedValue(new Error("Network down"));
+    const { result } = renderHook(() => useAuthSession(), { wrapper: createQueryClientWrapper(createTestQueryClient()) });
+    await waitFor(() => expect(result.current.session?.username).toBe("admin"));
+    await act(async () => { await result.current.logout(); });
+    expect(result.current.session?.username).toBe("admin");
+    expect(result.current.authError).toContain("로그아웃하지 못했습니다");
+  });
 });

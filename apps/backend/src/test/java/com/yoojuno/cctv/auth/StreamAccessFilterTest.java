@@ -2,7 +2,7 @@ package com.yoojuno.cctv.auth;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,6 +42,18 @@ class StreamAccessFilterTest {
 
         mockMvc.perform(get("/hls/forbidden-stream.m3u8")
                         .cookie(authCookie))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void keepsStreamPermissionsWhenTheApplicationHasAContextPath() throws Exception {
+        MvcResult login = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"viewer\",\"password\":\"viewer123\"}"))
+                .andExpect(status().isOk()).andReturn();
+        mockMvc.perform(get("/cctv/hls/forbidden-stream.m3u8")
+                        .contextPath("/cctv")
+                        .cookie(login.getResponse().getCookie("CCTV_AUTH")))
                 .andExpect(status().isForbidden());
     }
 }

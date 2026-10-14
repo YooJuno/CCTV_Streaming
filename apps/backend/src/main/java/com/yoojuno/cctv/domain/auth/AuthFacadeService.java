@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.Duration;
+import java.time.Instant;
 
 @Service
 public class AuthFacadeService {
@@ -40,7 +42,8 @@ public class AuthFacadeService {
     public AuthSession sessionFor(AuthenticatedUser user) {
         List<StreamInfo> streams = streamCatalogService.forAllowedStreamIds(user.allowedStreams());
         return new AuthSession(
-                jwtService.expirationSeconds(),
+                user.expiresAt() == null ? jwtService.expirationSeconds()
+                        : Math.max(0, Duration.between(Instant.now(), user.expiresAt()).getSeconds()),
                 user.username(),
                 user.displayName(),
                 streams

@@ -27,10 +27,14 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Install FFmpeg for ingest integration tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run backend tests
         run: ./gradlew test
 
   frontend:
+    needs: firmware
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,12 +46,18 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download public firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: cctv-esp32cam-firmware
+          path: apps/frontend/public/firmware
 
       - name: Typecheck
         run: npm run typecheck
@@ -71,9 +81,47 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Syntax check
-        run: bash -n scripts/*.sh apps/cctv/test/*.sh apps/backend/run.sh
+        run: |
+          for file in scripts/*.sh apps/cctv/test/*.sh apps/backend/run.sh; do
+            bash -n "$file"
+          done
 
       - name: ShellCheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck -S warning scripts/*.sh apps/cctv/test/*.sh
+          shellcheck -S warning scripts/*.sh apps/cctv/test/*.sh apps/backend/run.sh
+
+      - name: Process lifecycle tests
+        run: ./scripts/test_dev_lifecycle.sh
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('apps/cctv/device/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: python -m pip install platformio==6.2.0
+
+      - name: Build public firmware
+        run: |
+          printf '#error Factory firmware must exclude local credentials\n' > apps/cctv/device/wifi_secrets.h
+          ./scripts/build_firmware.sh
+
+      - name: Upload public firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: cctv-esp32cam-firmware
+          path: apps/frontend/public/firmware
+          if-no-files-found: error

@@ -24,6 +24,7 @@ interface UseHlsPlaybackResult {
   status: PlaybackStatus;
   errorMessage: string | null;
   metrics: PlaybackMetrics;
+  reconnect: () => void;
 }
 
 const INITIAL_METRICS: PlaybackMetrics = {
@@ -38,6 +39,7 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
   const [status, setStatus] = useState<PlaybackStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<PlaybackMetrics>(INITIAL_METRICS);
+  const [connectionVersion, setConnectionVersion] = useState(0);
 
   useEffect(() => {
     const video = videoElement;
@@ -47,6 +49,7 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
 
     let disposed = false;
     let hls: HlsType | null = null;
+    let manifestParsed = false;
     let retryTimer: number | null = null;
     let statsTimer: number | null = null;
     let stallWatchdogTimer: number | null = null;
@@ -77,7 +80,9 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
       if (disposed || !video) {
         return;
       }
-      const latency = computeLatencySeconds(hls?.liveSyncPosition ?? null, video.currentTime);
+      const latency = typeof hls?.latency === "number" && Number.isFinite(hls.latency)
+        ? hls.latency
+        : computeLatencySeconds(hls?.liveSyncPosition ?? null, video.currentTime);
       const bufferSec = getBufferedSeconds(video);
       const droppedFrames = getDroppedFrames(video);
       setMetrics((prev) => ({
@@ -148,12 +153,13 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
       retryCount = 0;
       notFoundRetryCount = 0;
       mediaRecoveryCount = 0;
+      fatalReloadCount = 0;
       updateMetrics();
     };
 
     const markVideoError = () => {
       setStatus("video error");
-      setErrorMessage("Video element reported an error.");
+      setErrorMessage("영상을 재생하지 못했습니다. 다시 연결해 주세요.");
       updateMetrics();
     };
 
@@ -198,7 +204,13 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
       retryTimer = window.setTimeout(() => {
         retryTimer = null;
         if (!disposed && hls) {
-          hls.startLoad();
+          // startLoad resumes segments only after a playlist has been parsed.
+          // A first-manifest 404 must issue a new manifest request.
+          if (manifestParsed) {
+            hls.startLoad();
+          } else {
+            hls.loadSource(manifestUrl);
+          }
         }
       }, delayMs);
     };
@@ -218,7 +230,12 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
         }
         stallRecoveryAttempts = 0;
         markProgress();
-        void initHls();
+        void initHls().catch(() => {
+          if (!disposed) {
+            setStatus("fatal error");
+            setErrorMessage("플레이어를 다시 불러오지 못했습니다. 다시 연결해 주세요.");
+          }
+        });
       }, delayMs);
     };
 
@@ -267,7 +284,7 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
       if (hls && stallRecoveryAttempts <= MAX_STALL_RECOVERY_ATTEMPTS) {
         setStatus("network retry");
         setErrorMessage(
-          `Playback stalled. Recovering... (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+          `영상 연결을 복구하고 있습니다. (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
         );
         if (bufferedSec < 0.2) {
           hls.startLoad();
@@ -282,7 +299,7 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
       if (usingNativeHls && stallRecoveryAttempts <= MAX_STALL_RECOVERY_ATTEMPTS) {
         setStatus("network retry");
         setErrorMessage(
-          `Playback stalled. Reloading native HLS... (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+          `영상을 다시 불러오고 있습니다. (${stallRecoveryAttempts}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
         );
         const src = manifestUrl;
         video.pause();
@@ -310,17 +327,18 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
         lastProgressAtMs = Date.now();
         scheduleFullReload(
           delayMs,
-          `Playback repeatedly stalled. Reinitializing player (${fatalReloadCount}/${MAX_FATAL_RELOADS})...`,
+          `플레이어를 다시 연결하고 있습니다. (${fatalReloadCount}/${MAX_FATAL_RELOADS})`,
         );
         return;
       }
 
       stopWatchdog();
       setStatus("fatal error");
-      setErrorMessage("Playback repeatedly stalled. Please restart stream source.");
+      setErrorMessage("영상이 계속 멈추고 있습니다. 카메라 연결을 확인한 뒤 다시 연결해 주세요.");
     }, STALL_WATCHDOG_INTERVAL_MS);
 
     const initHls = async () => {
+      manifestParsed = false;
       const module = (await import("hls.js/dist/hls.light.mjs")) as typeof import("hls.js");
       if (disposed) {
         return;
@@ -336,7 +354,7 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
           return;
         }
         setStatus("hls unsupported");
-        setErrorMessage("This browser does not support authenticated HLS playback.");
+        setErrorMessage("이 브라우저에서 영상을 재생할 수 없습니다. 최신 Chrome 또는 Safari를 사용해 주세요.");
         return;
       }
 
@@ -367,14 +385,10 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
           }),
       });
 
-      hls.loadSource(manifestUrl);
-      hls.attachMedia(video);
-
       hls.on(ctor.Events.MANIFEST_PARSED, () => {
+        manifestParsed = true;
         retryCount = 0;
         notFoundRetryCount = 0;
-        fatalReloadCount = 0;
-        mediaRecoveryCount = 0;
         setStatus("ready");
         setErrorMessage(null);
         markProgress();
@@ -403,7 +417,7 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
 
         if (decision.kind === "unauthorized") {
           setStatus("fatal error");
-          setErrorMessage("Unauthorized while loading HLS. Please sign in again.");
+          setErrorMessage("영상 접근 권한을 확인할 수 없습니다. 다시 로그인해 주세요.");
           hls?.destroy();
           hls = null;
           return;
@@ -462,9 +476,19 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
         hls?.destroy();
         hls = null;
       });
+      hls.attachMedia(video);
+      hls.loadSource(manifestUrl);
     };
 
-    void initHls();
+    const connect = () => {
+      void initHls().catch(() => {
+        if (!disposed) {
+          setStatus("fatal error");
+          setErrorMessage("플레이어를 불러오지 못했습니다. 네트워크를 확인하고 다시 연결해 주세요.");
+        }
+      });
+    };
+    connect();
 
     return () => {
       disposed = true;
@@ -481,11 +505,12 @@ export default function useHlsPlayback({ manifestUrl, videoElement }: UseHlsPlay
       }
       cleanupVideo();
     };
-  }, [manifestUrl, videoElement]);
+  }, [manifestUrl, videoElement, connectionVersion]);
 
   return {
     status,
     errorMessage,
     metrics,
+    reconnect: () => setConnectionVersion((version) => version + 1),
   };
 }

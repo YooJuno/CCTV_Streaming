@@ -37,7 +37,8 @@ public class UserAccountService {
         }
 
         String[] entries = usersRaw.split(";");
-        for (String entry : entries) {
+        for (int index = 0; index < entries.length; index++) {
+            String entry = entries[index];
             if (entry == null || entry.isBlank()) {
                 continue;
             }
@@ -45,7 +46,7 @@ public class UserAccountService {
             String[] parts = entry.split(":", 3);
             if (parts.length < 3) {
                 // Silently dropping entries makes a typo look like a wrong password at login time.
-                log.warn("Skipping malformed auth.users entry (expected username:passwordSpec:streams): '{}'", entry);
+                log.warn("Skipping malformed auth.users entry #{} (expected username:passwordSpec:streams).", index + 1);
                 continue;
             }
 
@@ -54,7 +55,7 @@ public class UserAccountService {
             String streamsRaw = parts[2].trim();
 
             if (username.isBlank() || passwordSpec.isBlank() || streamsRaw.isBlank()) {
-                log.warn("Skipping auth.users entry with an empty field: '{}'", entry);
+                log.warn("Skipping auth.users entry #{} with an empty field.", index + 1);
                 continue;
             }
 

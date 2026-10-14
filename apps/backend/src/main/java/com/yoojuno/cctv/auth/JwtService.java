@@ -60,13 +60,17 @@ public class JwtService {
                 .parseSignedClaims(token);
         Claims claims = parsed.getPayload();
         String username = claims.getSubject();
+        if (username == null || username.isBlank() || claims.getExpiration() == null) {
+            throw new IllegalArgumentException("JWT must include a subject and expiration.");
+        }
         String displayName = claims.get("displayName", String.class);
         Object streamsClaim = claims.get("streams");
         Set<String> streamSet = parseStreamsClaim(streamsClaim);
         return new AuthenticatedUser(
                 username,
                 displayName == null || displayName.isBlank() ? username : displayName,
-                streamSet
+                streamSet,
+                claims.getExpiration().toInstant()
         );
     }
 

@@ -2,7 +2,7 @@ package com.yoojuno.cctv.auth;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "auth.jwt.secret=test-jwt-secret-should-be-32-bytes-minimum",
         "auth.users=admin:{plain}admin123:*;viewer:{plain}viewer123:mystream",
         "auth.login.max-attempts=3",
+        "auth.login.max-attempts-per-ip=3",
         "auth.login.lockout-seconds=300"
 })
 @AutoConfigureMockMvc
@@ -42,6 +43,23 @@ class LoginThrottleTest {
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(WRONG_PASSWORD))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"));
+    }
+
+    @Test
+    void blocksRotatingUsernamesFromTheSameClientAddress() throws Exception {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            mockMvc.perform(post("/api/auth/login")
+                            .with(request -> { request.setRemoteAddr("192.0.2.20"); return request; })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"username\":\"rotated-" + attempt + "\",\"password\":\"wrong\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(post("/api/auth/login")
+                        .with(request -> { request.setRemoteAddr("192.0.2.20"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"next-user\",\"password\":\"wrong\"}"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"));
     }

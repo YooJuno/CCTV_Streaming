@@ -24,10 +24,10 @@ fi
 if command -v curl >/dev/null 2>&1; then
   echo
   echo "== HTTP checks =="
-  curl -fsS http://127.0.0.1:8081/health 2>/dev/null || echo "backend /health unavailable"
+  curl -fsS --max-time 2 http://127.0.0.1:8081/health 2>/dev/null || echo "backend /health unavailable"
   echo
 
-  if curl -fsS http://127.0.0.1:5174 >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 http://127.0.0.1:5174 >/dev/null 2>&1; then
     echo "frontend / reachable"
   else
     echo "frontend / unavailable"
