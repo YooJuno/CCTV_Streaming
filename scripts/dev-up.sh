@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/_dev_lib.sh"
 
 WITH_DUMMY=false
 WITH_CONVERTER=false
-FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
+FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 STREAM_ID="${STREAM_ID:-mystream}"
 DUMMY_PORT="${DUMMY_PORT:-18081}"
 MJPEG_URL="${MJPEG_URL:-}"
@@ -18,10 +18,10 @@ Usage: ./scripts/dev-up.sh [options]
 
 Options:
   --with-converter      Start MJPEG -> HLS converter (requires MJPEG_URL unless --with-dummy)
-  --with-dummy          Start dummy CCTV source + converter (uses docs/video.mp4 by default)
+  --with-dummy          Start dummy CCTV source + converter (uses docs/media/video.mp4 by default)
   --mjpeg-url <url>     Override MJPEG source URL
   --stream-id <id>      Stream ID (default: mystream)
-  --frontend-host <ip>  Frontend bind host (default: 0.0.0.0)
+  --frontend-host <ip>  Frontend bind host (default: 127.0.0.1)
   -h, --help            Show this help
 
 Examples:
@@ -29,6 +29,13 @@ Examples:
   ./scripts/dev-up.sh --with-converter --mjpeg-url http://192.168.219.106:81/stream
   ./scripts/dev-up.sh --with-dummy
 EOF
+}
+
+require_option_value() {
+  if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+    echo "Option $1 requires a value"
+    exit 1
+  fi
 }
 
 while [ "$#" -gt 0 ]; do
@@ -43,14 +50,17 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --mjpeg-url)
+      require_option_value "$@"
       MJPEG_URL="$2"
       shift 2
       ;;
     --stream-id)
+      require_option_value "$@"
       STREAM_ID="$2"
       shift 2
       ;;
     --frontend-host)
+      require_option_value "$@"
       FRONTEND_HOST="$2"
       shift 2
       ;;
@@ -65,6 +75,11 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if ! [[ "$STREAM_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  echo "Invalid STREAM_ID: use 1 to 64 letters, digits, dots, underscores, or hyphens; start with a letter or digit"
+  exit 1
+fi
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "npm not found in PATH"
@@ -107,9 +122,10 @@ resolve_dev_jwt_secret() {
 }
 
 AUTH_JWT_SECRET_VALUE="$(resolve_dev_jwt_secret)"
-DEFAULT_AUTH_USERS='admin:{plain}admin123:*;viewer:{plain}viewer123:mystream'
-AUTH_USERS_VALUE="${AUTH_USERS:-$DEFAULT_AUTH_USERS}"
-if [ -z "${AUTH_USERS:-}" ]; then
+DEFAULT_AUTH_USERS="admin:{plain}admin123:*;viewer:{plain}viewer123:${STREAM_ID}"
+AUTH_USERS_VALUE="${AUTH_USERS-$DEFAULT_AUTH_USERS}"
+STREAMS_CATALOG_VALUE="${STREAMS_CATALOG-${STREAM_ID}:Main Entrance}"
+if [ -z "${AUTH_USERS+x}" ]; then
   log "WARNING: using built-in dev accounts (admin/admin123, viewer/viewer123)."
   log "         Set AUTH_USERS before exposing this host to a network you do not control."
 fi
@@ -217,7 +233,8 @@ else
     AUTH_USERS="$AUTH_USERS_VALUE" \
     API_ALLOWED_ORIGINS="$API_ALLOWED_ORIGINS_VALUE" \
     HLS_ALLOWED_ORIGINS="$HLS_ALLOWED_ORIGINS_VALUE" \
-    bash -lc "cd '$ROOT_DIR/apps/backend' && ./gradlew bootRun --no-daemon"
+    STREAMS_CATALOG="$STREAMS_CATALOG_VALUE" \
+    bash -c 'cd "$1" && shift && exec "$@"' bash "$ROOT_DIR/apps/backend" ./gradlew bootRun --no-daemon
 fi
 
 if is_port_listening 5174; then
@@ -225,7 +242,7 @@ if is_port_listening 5174; then
 else
   start_service frontend env \
     VITE_PROXY_TARGET="$VITE_PROXY_TARGET_VALUE" \
-    bash -lc "cd '$ROOT_DIR/apps/frontend' && npm run dev -- --host '$FRONTEND_HOST' --port 5174"
+    bash -c 'cd "$1" && shift && exec "$@"' bash "$ROOT_DIR/apps/frontend" npm run dev -- --host "$FRONTEND_HOST" --port 5174
 fi
 
 if [ "$WITH_DUMMY" = true ]; then
@@ -235,19 +252,24 @@ if [ "$WITH_DUMMY" = true ]; then
     start_service test_stream env \
       STREAM_ID="$STREAM_ID" \
       DUMMY_PORT="$DUMMY_PORT" \
-      bash -lc "cd '$ROOT_DIR' && '$ROOT_DIR/apps/cctv/test/run_test_stream.sh'"
+      "$ROOT_DIR/apps/cctv/test/run_test_stream.sh"
   fi
 elif [ "$WITH_CONVERTER" = true ]; then
   start_service converter env \
     MJPEG_URL="$MJPEG_URL" \
     STREAM_ID="$STREAM_ID" \
-    bash -lc "cd '$ROOT_DIR' && '$ROOT_DIR/scripts/mjpeg_to_hls.sh'"
+    "$ROOT_DIR/scripts/mjpeg_to_hls.sh"
 fi
 
-wait_for_http "Backend" "http://127.0.0.1:8081/health" 25 || true
-wait_for_http "Frontend" "http://127.0.0.1:5174" 25 || true
+startup_failed=false
+wait_for_http "Backend" "http://127.0.0.1:8081/health" 25 || startup_failed=true
+wait_for_http "Frontend" "http://127.0.0.1:5174" 25 || startup_failed=true
 if [ "$WITH_CONVERTER" = true ]; then
-  wait_for_file "$ROOT_DIR/apps/backend/hls/${STREAM_ID}.m3u8" 25 || true
+  wait_for_file "${HLS_DIR:-$ROOT_DIR/apps/backend/hls}/${STREAM_ID}.m3u8" 25 || startup_failed=true
 fi
 
 "$SCRIPT_DIR/dev-status.sh"
+if [ "$startup_failed" = true ]; then
+  log "Startup checks failed. Check the logs above."
+  exit 1
+fi

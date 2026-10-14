@@ -20,7 +20,40 @@ pid_file() {
 
 is_pid_running() {
   local pid="$1"
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null || return 1
+  local state
+  state="$(ps -p "$pid" -o stat= 2>/dev/null || true)"
+  [[ "$state" != *Z* ]] && [ -n "$state" ]
+}
+
+process_identity() {
+  ps -p "$1" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//' || true
+}
+
+is_owned_service_pid() {
+  local service_name="$1" pid="$2"
+  local identity_file
+  identity_file="$(pid_file "$service_name").identity"
+  [ -s "$identity_file" ] && is_pid_running "$pid" &&
+    [ "$(cat "$identity_file")" = "$(process_identity "$pid")" ]
+}
+
+descendant_pids() {
+  local root_pid="$1"
+  ps -axo pid=,ppid= | awk -v root="$root_pid" '
+    {parent[$1]=$2; order[++count]=$1}
+    END {
+      owned[root]=1
+      for (pass=0; pass<count; pass++) {
+        changed=0
+        for (i=1; i<=count; i++) {
+          pid=order[i]
+          if (!owned[pid] && owned[parent[pid]]) {owned[pid]=1; changed=1}
+        }
+        if (!changed) break
+      }
+      for (i=count; i>=1; i--) if (owned[order[i]]) print order[i]
+    }'
 }
 
 start_service() {
@@ -35,11 +68,12 @@ start_service() {
   if [ -f "$file" ]; then
     local current_pid
     current_pid="$(cat "$file" 2>/dev/null || true)"
-    if is_pid_running "$current_pid"; then
+    if is_owned_service_pid "$service_name" "$current_pid"; then
       log "$service_name already running (pid=$current_pid)"
       return 0
     fi
     rm -f "$file"
+    rm -f "$file.identity"
   fi
 
   log "Starting $service_name..."
@@ -50,12 +84,14 @@ start_service() {
   fi
   local new_pid=$!
   echo "$new_pid" >"$file"
+  process_identity "$new_pid" >"$file.identity"
   sleep 1
 
   if ! is_pid_running "$new_pid"; then
     log "Failed to start $service_name. Last logs:"
     tail -n 40 "$log_file" || true
     rm -f "$file"
+    rm -f "$file.identity"
     return 1
   fi
 
@@ -75,19 +111,40 @@ stop_service() {
   local pid
   pid="$(cat "$file" 2>/dev/null || true)"
 
-  if ! is_pid_running "$pid"; then
-    log "$service_name stale pid file removed"
-    rm -f "$file"
+  if ! is_owned_service_pid "$service_name" "$pid"; then
+    log "$service_name has no matching owned process; stale pid file removed"
+    rm -f "$file" "$file.identity"
     return 0
   fi
 
   log "Stopping $service_name (pid=$pid)..."
-  kill "$pid" 2>/dev/null || true
+  # Capture the owned tree before terminating its parent, including custom-port
+  # ffmpeg children. No command-pattern search crosses checkout boundaries.
+  local tree_file="$file.tree"
+  local child_pid identity
+  : >"$tree_file"
+  while read -r child_pid; do
+    identity="$(process_identity "$child_pid")"
+    if [ -n "$identity" ]; then
+      printf '%s|%s\n' "$child_pid" "$identity" >>"$tree_file"
+    fi
+  done < <(descendant_pids "$pid")
+  while IFS='|' read -r child_pid identity; do
+    if [ "$identity" = "$(process_identity "$child_pid")" ]; then
+      kill "$child_pid" 2>/dev/null || true
+    fi
+  done <"$tree_file"
 
   local i
   for i in {1..20}; do
-    if ! is_pid_running "$pid"; then
-      rm -f "$file"
+    local any_running=false
+    while IFS='|' read -r child_pid identity; do
+      if is_pid_running "$child_pid" && [ "$identity" = "$(process_identity "$child_pid")" ]; then
+        any_running=true
+      fi
+    done <"$tree_file"
+    if [ "$any_running" = false ]; then
+      rm -f "$file" "$file.identity" "$tree_file"
       log "$service_name stopped"
       return 0
     fi
@@ -95,8 +152,12 @@ stop_service() {
   done
 
   log "$service_name did not stop gracefully, sending SIGKILL"
-  kill -9 "$pid" 2>/dev/null || true
-  rm -f "$file"
+  while IFS='|' read -r child_pid identity; do
+    if [ "$identity" = "$(process_identity "$child_pid")" ]; then
+      kill -9 "$child_pid" 2>/dev/null || true
+    fi
+  done <"$tree_file"
+  rm -f "$file" "$file.identity" "$tree_file"
 }
 
 service_status() {
@@ -111,39 +172,13 @@ service_status() {
 
   local pid
   pid="$(cat "$file" 2>/dev/null || true)"
-  if is_pid_running "$pid"; then
+  if is_owned_service_pid "$service_name" "$pid"; then
     printf "%-12s %s (pid=%s)\n" "$service_name" "running" "$pid"
     return 0
   fi
 
   printf "%-12s %s\n" "$service_name" "stale pid file"
   return 1
-}
-
-matching_pids() {
-  local pattern="$1"
-  pgrep -f "$pattern" 2>/dev/null | grep -v "^$$\$" || true
-}
-
-kill_matching_processes() {
-  local label="$1"
-  local pattern="$2"
-  local pids
-  pids="$(matching_pids "$pattern")"
-  if [ -z "$pids" ]; then
-    return 0
-  fi
-
-  log "Cleaning up orphan $label processes: $(echo "$pids" | tr '\n' ' ')"
-  # shellcheck disable=SC2086 # intentional word splitting over the pid list
-  kill $pids 2>/dev/null || true
-  sleep 1
-
-  pids="$(matching_pids "$pattern")"
-  if [ -n "$pids" ]; then
-    # shellcheck disable=SC2086
-    kill -9 $pids 2>/dev/null || true
-  fi
 }
 
 wait_for_http() {

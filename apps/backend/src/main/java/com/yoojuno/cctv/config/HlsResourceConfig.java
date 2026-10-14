@@ -21,6 +21,9 @@ public class HlsResourceConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         String location = Path.of(hlsPath).toAbsolutePath().normalize().toUri().toString();
+        if (!location.endsWith("/")) {
+            location += "/";
+        }
         registry.addResourceHandler("/hls/**")
                 .addResourceLocations(location)
                 .setCacheControl(CacheControl.noCache());

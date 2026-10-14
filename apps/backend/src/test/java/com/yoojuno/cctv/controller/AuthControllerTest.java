@@ -1,8 +1,9 @@
 package com.yoojuno.cctv.controller;
 
 import org.junit.jupiter.api.Test;
+import com.yoojuno.cctv.api.auth.dto.LoginRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +21,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class AuthControllerTest {
+
+    @Test
+    void loginRequestLogsRedactThePassword() {
+        org.assertj.core.api.Assertions.assertThat(new LoginRequest("viewer", "password-sentinel").toString())
+                .contains("[REDACTED]").doesNotContain("password-sentinel");
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -46,7 +53,17 @@ class AuthControllerTest {
     @Test
     void streamsRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/streams"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("unauthorized"));
+    }
+
+    @Test
+    void rejectsOversizedUsernamesWithTheStableErrorBody() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + "x".repeat(129) + "\",\"password\":\"wrong\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid request"));
     }
 
     @Test

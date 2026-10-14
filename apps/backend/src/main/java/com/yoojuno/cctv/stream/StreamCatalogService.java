@@ -33,8 +33,9 @@ public class StreamCatalogService {
             String[] pair = entry.split(":", 2);
             String id = pair[0].trim();
             if (id.isBlank()) {
-                continue;
+                throw new IllegalStateException("Stream catalog contains an empty stream id.");
             }
+            StreamIds.requireValid(id);
             String name = pair.length > 1 ? pair[1].trim() : id;
             if (name.isBlank()) {
                 name = id;

@@ -22,12 +22,16 @@ final class CorsOrigins {
         }
         List<String> wildcards = Arrays.stream(origins)
                 .map(String::trim)
-                .filter(origin -> origin.equals("*") || origin.equals("*/*") || origin.startsWith("*."))
+                .filter(origin -> origin.contains("*"))
                 .toList();
         if (!wildcards.isEmpty()) {
             throw new IllegalStateException(propertyName + " contains wildcard origin(s) " + wildcards
                     + ". Credentialed CORS requires explicit origins, e.g. http://192.168.0.10:5174");
         }
-        return Arrays.stream(origins).map(String::trim).filter(origin -> !origin.isEmpty()).toArray(String[]::new);
+        String[] normalized = Arrays.stream(origins).map(String::trim).filter(origin -> !origin.isEmpty()).toArray(String[]::new);
+        if (normalized.length == 0) {
+            throw new IllegalStateException(propertyName + " is empty. Configure at least one allowed origin.");
+        }
+        return normalized;
     }
 }

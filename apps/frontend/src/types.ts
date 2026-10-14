@@ -3,6 +3,20 @@ export interface StreamInfo {
   name: string;
 }
 
+export interface StreamSettings {
+  fps: number;
+  frameSize: "QVGA" | "CIF" | "VGA" | "SVGA";
+  jpegQuality: number;
+  adaptive: boolean;
+  revision: number;
+}
+
+export interface DeviceProvisionResponse {
+  streamId: string;
+  deviceToken: string;
+  ingestUrl: string;
+}
+
 export interface AuthResponse {
   expiresInSeconds: number;
   username: string;

@@ -37,6 +37,8 @@ pip-delete-this-directory.txt
 node_modules/
 apps/frontend/node_modules/
 apps/frontend/dist/
+apps/frontend/public/firmware/*.bin
+apps/frontend/public/firmware/manifest.json
 apps/frontend/.vite/
 coverage/
 
@@ -46,6 +48,7 @@ build/
 apps/backend/.gradle/
 apps/backend/build/
 apps/backend/hls/
+apps/backend/device-registry.properties
 *.class
 *.jar
 !**/gradle/wrapper/gradle-wrapper.jar

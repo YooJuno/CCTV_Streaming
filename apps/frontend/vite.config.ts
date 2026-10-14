@@ -6,7 +6,7 @@ const backendTarget = process.env.VITE_PROXY_TARGET || "http://127.0.0.1:8081";
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: true,
+    host: "127.0.0.1",
     port: 5174,
     strictPort: true,
     // changeOrigin rewrites Host but not Origin, so the browser's Origin

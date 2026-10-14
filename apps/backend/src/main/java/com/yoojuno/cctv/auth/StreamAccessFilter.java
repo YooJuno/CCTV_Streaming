@@ -27,9 +27,9 @@ public class StreamAccessFilter extends OncePerRequestFilter {
      * {@code <streamId>_<index>.<ext>} for segments. Stream ids are restricted to a safe
      * character set so no path separator or traversal sequence can reach the resource handler.
      */
-    private static final Pattern MANIFEST_NAME = Pattern.compile("^([A-Za-z0-9][A-Za-z0-9._-]*)\\.m3u8$");
+    private static final Pattern MANIFEST_NAME = Pattern.compile("^([A-Za-z0-9][A-Za-z0-9._-]{0,63})\\.m3u8$");
     private static final Pattern SEGMENT_NAME =
-            Pattern.compile("^([A-Za-z0-9][A-Za-z0-9._-]*?)_\\d+\\.(?:ts|m4s|mp4|aac|vtt)$");
+            Pattern.compile("^([A-Za-z0-9][A-Za-z0-9._-]{0,63}?)_\\d+\\.(?:ts|m4s|mp4|aac|vtt)$");
 
     @Override
     protected void doFilterInternal(
@@ -38,6 +38,10 @@ public class StreamAccessFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
         String path = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (path != null && contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath + "/")) {
+            path = path.substring(contextPath.length());
+        }
         if (path == null || !path.startsWith(HLS_PREFIX)) {
             filterChain.doFilter(request, response);
             return;

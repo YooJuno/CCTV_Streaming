@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import useHealthPolling, { computeNextPollDelayMs } from "./useHealthPolling";
+import useSystemHealthQuery from "../system/useSystemHealthQuery";
 import { createQueryClientWrapper, createTestQueryClient } from "../../test/queryClientWrapper";
 import type { AuthSession, StreamHealth, SystemHealthResponse } from "../../types";
 
@@ -95,10 +96,10 @@ describe("useHealthPolling", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.healthWarning).toContain("Health polling delayed");
+      expect(result.current.healthWarning).toContain("상태 갱신이 지연되고 있습니다");
     });
 
-    expect(result.current.healthWarning).toContain("8.0s");
+    expect(result.current.healthWarning).toContain("8초");
     expect(result.current.healthWarning).toContain("network timeout");
   });
 
@@ -107,5 +108,16 @@ describe("useHealthPolling", () => {
     expect(computeNextPollDelayMs(4000, 1, "visible")).toBe(8000);
     expect(computeNextPollDelayMs(4000, 1, "hidden")).toBe(16000);
     expect(computeNextPollDelayMs(4000, 10, "hidden")).toBe(30000);
+  });
+
+  it("clears previously healthy indicators when the next status request fails", async () => {
+    mockFetchSystemHealth.mockResolvedValueOnce({ ...SYSTEM_HEALTH_RESPONSE, recommendedPollMs: 1000 }).mockRejectedValue(new Error("server unavailable"));
+    const { result } = renderHook(() => ({ health: useHealthPolling(SESSION), system: useSystemHealthQuery(SESSION) }), { wrapper: createQueryClientWrapper(createTestQueryClient()) });
+    await waitFor(() => expect(result.current.health.streamHealthById.mystream?.live).toBe(true));
+    expect(result.current.system.hlsStorage?.exists).toBe(true);
+    await waitFor(() => expect(result.current.health.healthWarning).toContain("server unavailable"), { timeout: 2500 });
+    expect(result.current.health.streamHealthById).toEqual({});
+    expect(result.current.system.hlsStorage).toBeNull();
+    expect(result.current.system.systemRecommendations).toEqual([]);
   });
 });

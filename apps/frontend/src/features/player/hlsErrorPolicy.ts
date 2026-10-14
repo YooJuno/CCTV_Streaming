@@ -44,12 +44,12 @@ export function decideFatalHlsErrorAction(input: FatalErrorInput, state: FatalEr
         kind: "not-found-retry",
         nextNotFoundRetryCount,
         delayMs,
-        message: `HLS stream is not generated yet (404). Waiting for pipeline... (${nextNotFoundRetryCount}/${MAX_NOT_FOUND_RETRIES})`,
+        message: `첫 영상이 준비되기를 기다리고 있습니다. (${nextNotFoundRetryCount}/${MAX_NOT_FOUND_RETRIES})`,
       };
     }
     return {
       kind: "not-found-fatal",
-      message: "HLS stream is not generated yet (404). Start the FFmpeg pipeline first.",
+      message: "영상이 아직 준비되지 않았습니다. 카메라와 변환기 연결을 확인해 주세요.",
     };
   }
 
@@ -61,7 +61,7 @@ export function decideFatalHlsErrorAction(input: FatalErrorInput, state: FatalEr
       kind: "network-retry",
       nextRetryCount,
       delayMs: RETRY_BASE_DELAY_MS * nextRetryCount,
-      message: `Network issue detected${codeSuffix}. Retrying (${nextRetryCount}/${MAX_NETWORK_RETRIES})...`,
+      message: `영상 서버에 다시 연결하고 있습니다${codeSuffix}. (${nextRetryCount}/${MAX_NETWORK_RETRIES})`,
     };
   }
 
@@ -73,7 +73,7 @@ export function decideFatalHlsErrorAction(input: FatalErrorInput, state: FatalEr
       kind: "network-full-reload",
       nextFatalReloadCount,
       delayMs,
-      message: `Persistent network issue${codeSuffix}. Reinitializing player (${nextFatalReloadCount}/${MAX_FATAL_RELOADS})...`,
+      message: `연결이 지연되어 플레이어를 다시 시작합니다${codeSuffix}. (${nextFatalReloadCount}/${MAX_FATAL_RELOADS})`,
     };
   }
 
@@ -83,7 +83,7 @@ export function decideFatalHlsErrorAction(input: FatalErrorInput, state: FatalEr
       return {
         kind: "media-recovery",
         nextMediaRecoveryCount,
-        message: `Media decode issue detected. Attempting recovery (${nextMediaRecoveryCount}/${MAX_MEDIA_RECOVERIES})...`,
+        message: `영상 재생을 복구하고 있습니다. (${nextMediaRecoveryCount}/${MAX_MEDIA_RECOVERIES})`,
       };
     }
 
@@ -94,19 +94,19 @@ export function decideFatalHlsErrorAction(input: FatalErrorInput, state: FatalEr
         kind: "media-full-reload",
         nextFatalReloadCount,
         delayMs,
-        message: `Media recovery limit reached. Reinitializing player (${nextFatalReloadCount}/${MAX_FATAL_RELOADS})...`,
+        message: `영상을 새로 연결하고 있습니다. (${nextFatalReloadCount}/${MAX_FATAL_RELOADS})`,
       };
     }
 
     return {
       kind: "media-fatal",
-      message: "Media decode failed repeatedly. Please restart stream source.",
+      message: "영상을 정상적으로 읽지 못했습니다. 카메라 연결을 확인해 주세요.",
     };
   }
 
   const codeSuffix = httpCode ? ` (HTTP ${httpCode})` : "";
   return {
     kind: "fatal",
-    message: (input.details || "Fatal playback error.") + codeSuffix,
+    message: "영상을 불러오지 못했습니다. 다시 연결해 주세요." + codeSuffix,
   };
 }

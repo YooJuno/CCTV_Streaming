@@ -94,6 +94,40 @@ class StreamHealthServiceTest {
         assertThat(health.latestSegmentExists()).isTrue();
     }
 
+    @Test
+    void returnsStaleForAnOldManifestThatNeverPublishedSegments() throws Exception {
+        Path manifest = tempDir.resolve("mystream.m3u8");
+        Files.writeString(manifest, "#EXTM3U\n#EXT-X-TARGETDURATION:1\n");
+        Files.setLastModifiedTime(manifest, FileTime.from(Instant.now().minusSeconds(60)));
+        StreamHealthService.StreamHealth health = healthFor(newService(tempDir, 12, 2), "mystream");
+        assertThat(health.state()).isEqualTo(StreamHealthService.StreamState.STALE);
+        assertThat(health.reason()).isEqualTo("MANIFEST_STALE");
+    }
+
+    @Test
+    void doesNotReportLiveWhenAnOlderReferencedSegmentIsMissing() throws Exception {
+        writeTwoSegmentManifest();
+        Files.write(tempDir.resolve("mystream_00002.ts"), new byte[]{1, 2, 3});
+        StreamHealthService.StreamHealth health = healthFor(newService(tempDir, 12, 2), "mystream");
+        assertThat(health.state()).isEqualTo(StreamHealthService.StreamState.STALE);
+        assertThat(health.reason()).isEqualTo("SEGMENT_MISSING");
+        assertThat(health.latestSegmentExists()).isTrue();
+    }
+
+    @Test
+    void doesNotReportLiveWhenAnOlderReferencedSegmentIsEmpty() throws Exception {
+        writeTwoSegmentManifest();
+        Files.write(tempDir.resolve("mystream_00001.ts"), new byte[0]);
+        Files.write(tempDir.resolve("mystream_00002.ts"), new byte[]{1, 2, 3});
+        StreamHealthService.StreamHealth health = healthFor(newService(tempDir, 12, 2), "mystream");
+        assertThat(health.state()).isEqualTo(StreamHealthService.StreamState.STALE);
+        assertThat(health.reason()).isEqualTo("SEGMENT_EMPTY");
+    }
+
+    private void writeTwoSegmentManifest() throws Exception {
+        Files.writeString(tempDir.resolve("mystream.m3u8"), "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nmystream_00001.ts\n#EXTINF:1,\nmystream_00002.ts\n");
+    }
+
     private static StreamHealthService newService(Path hlsDir, long thresholdSeconds, int minSegments) {
         StreamHealthService service = new StreamHealthService();
         ReflectionTestUtils.setField(service, "hlsPath", hlsDir.toString());

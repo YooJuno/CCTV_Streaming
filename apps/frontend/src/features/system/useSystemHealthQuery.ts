@@ -20,7 +20,7 @@ export default function useSystemHealthQuery(session: AuthSession | null): UseSy
   });
 
   return useMemo(() => {
-    if (!session) {
+    if (!session || query.error) {
       return {
         systemRecommendations: [],
         hlsStorage: null,
@@ -31,5 +31,5 @@ export default function useSystemHealthQuery(session: AuthSession | null): UseSy
       systemRecommendations: query.data?.recommendations ?? [],
       hlsStorage: query.data?.hlsStorage ?? null,
     };
-  }, [query.data?.hlsStorage, query.data?.recommendations, session]);
+  }, [query.data?.hlsStorage, query.data?.recommendations, query.error, session]);
 }

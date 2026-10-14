@@ -1,0 +1,45 @@
+.installer-panel { max-width: 1080px; min-width: 0; }
+.installer-intro { margin: 0 0 28px; }
+.installer-intro h2 { font-size: clamp(24px, 3vw, 32px); letter-spacing: -.045em; margin: 8px 0; }
+.installer-intro p { color: var(--muted, #6b756e); font-size: 14px; line-height: 1.8; margin: 0; }
+.installer-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; padding: 0; margin: 0 0 26px; gap: 12px; }
+.installer-step { display: flex; align-items: center; gap: 12px; color: #87928b; padding: 16px 14px; border: 1px solid #e1e6df; border-radius: 12px; }
+.installer-step > span { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #e8ece7; font-size: 12px; font-weight: 700; }
+.installer-step.current { color: #216748; background: #edf5ed; border-color: #bfd6c3; }
+.installer-step.current > span { background: #216748; color: white; }
+.installer-step strong, .installer-step small { display: block; }
+.installer-step strong { font-size: 12px; }.installer-step small { font-size: 10px; margin-top: 5px; }
+.installer-workspace { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 20px; align-items: start; }
+.installer-card { border: 1px solid #e1e6df; background: #fff; border-radius: 16px; padding: 26px; min-width: 0; }
+.installer-card-heading { display: flex; gap: 13px; align-items: center; margin-bottom: 24px; }
+.section-number { width: 34px; height: 34px; background: #f0f3ef; color: #77847a; border-radius: 10px; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.installer-card h3 { font-size: 16px; letter-spacing: -.03em; margin: 0 0 5px; }.installer-card-heading p { font-size: 11px; color: #7b857e; margin: 0; }
+.installer-status { display: flex; align-items: center; gap: 9px; padding: 16px; border-radius: 10px; background: #f5f6f3; color: #7b857e; font-size: 12px; }.installer-status.connected { background: #edf6ee; color: #216748; }
+.installer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 22px; }.installer-checkbox { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; color: #637167; line-height: 1.7; margin-bottom: 13px; }.installer-checkbox input { margin-top: 4px; accent-color: #216748; }
+.installer-panel .install-button { width: 100%; background: #22372b; color: #fff; justify-content: center; }.flash-progress { width: 100%; accent-color: #216748; margin-top: 16px; }
+.installer-form { display: grid; gap: 18px; }.installer-panel .form-field { display: grid; gap: 8px; min-width: 0; }.installer-panel .form-field > span { font-size: 12px; font-weight: 600; color: #49594d; }.installer-panel .form-field small { color: #7a867c; font-size: 11px; line-height: 1.7; }
+.installer-panel input:not([type=checkbox]), .installer-panel select, .installer-panel textarea { width: 100%; min-width: 0; background: #f9faf7; border: 1px solid #dce3d9; border-radius: 9px; padding: 12px 13px; font: inherit; font-size: 12px; color: #22372b; }.installer-panel input:focus, .installer-panel select:focus, .installer-panel textarea:focus { outline: 2px solid #96bfa2; outline-offset: 2px; }.installer-panel input:disabled, .installer-panel select:disabled { opacity: .65; }.installer-panel textarea { resize: vertical; }
+.installer-catalog-message { margin: 8px 0 0; color: #a34f34; font-size: 11px; line-height: 1.8; }
+.installer-password { display: flex; position: relative; }.installer-password input { padding-right: 58px !important; }.installer-password button { position: absolute; right: 8px; top: 7px; border: 0; background: transparent; color: #667a6b; padding: 7px; cursor: pointer; font-size: 11px; }
+.installer-server-fields { display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 12px; }
+.installer-help { margin-top: 17px; color: #788579; font-size: 11px; line-height: 1.8; }.installer-help summary { cursor: pointer; color: #5b6c60; padding: 6px 0; }.installer-help p { margin: 8px 0; }.installer-form .installer-help { margin-top: 0; }
+.installer-link { border: 0; background: transparent; color: #397153; font: inherit; font-size: 11px; padding: 10px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }.installer-link:disabled { cursor: default; opacity: .45; }
+.installer-feedback { display: flex; gap: 10px; align-items: center; padding: 18px 20px; background: #f1f3ef; border-radius: 12px; margin-top: 22px; color: #657166; }.installer-feedback p { font-size: 12px; line-height: 1.8; margin: 0; }.installer-error { margin-top: 12px; padding: 16px 20px; background: #fcf0eb; color: #a34f34; font-size: 12px; line-height: 1.8; border-radius: 12px; }
+.installer-result { margin-top: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }.installer-result > div { background: white; border: 1px solid #e1e6df; padding: 16px; border-radius: 12px; min-width: 0; }.installer-result small { display: block; color: #889188; font-size: 10px; margin-bottom: 7px; }.installer-result strong { font-size: 12px; color: #49584d; overflow-wrap: anywhere; }
+.installer-note { padding: 18px 20px; background: #faf0df; color: #937644; font-size: 12px; line-height: 1.8; border: 1px solid #f0e0c4; border-radius: 12px; margin-bottom: 20px; }.installer-note p { margin-bottom: 0; }.installer-footnote { font-size: 11px; color: #869084; line-height: 1.9; margin-top: 20px; }
+@media (max-width: 780px) { .installer-workspace { grid-template-columns: minmax(0, 1fr); }.installer-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }.installer-result { grid-template-columns: repeat(2, minmax(0, 1fr)); }.installer-card { padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .installer-panel * { transition: none !important; } }
+
+.installer-feedback.success { background: #edf5ed; color: #216748; }
+.installer-feedback.pending { background: #faf4e8; color: #92713e; }
+.installer-feedback.error { background: #fcf0eb; color: #a34f34; }
+.installer-result > .success { border-color: #cfe1cf; background: #f4f9f2; }
+.installer-result > .pending { border-color: #e7dcc6; background: #fcf9f2; }
+.installer-result > .error { border-color: #ecd5cb; background: #fff7f2; }
+.installer-result > .success strong { color: #216748; }
+.installer-result > .pending strong { color: #92713e; }
+.installer-result > .error strong { color: #a34f34; }
+.installer-publish-state strong { line-height: 1.7; }
+.installer-device-diagnostics { margin-top: 14px; color: #788579; font-size: 11px; }
+.installer-device-diagnostics summary { cursor: pointer; padding: 6px 0; }
+.installer-device-diagnostics code { display: block; margin-top: 6px; padding: 11px 13px; background: #f1f3ef; border-radius: 8px; font-size: 10px; color: #637167; overflow-wrap: anywhere; white-space: pre-wrap; }

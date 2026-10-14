@@ -28,7 +28,7 @@ export default function useStreamsQuery(session: AuthSession | null): UseStreams
     return query.data?.streams ?? [];
   }, [query.data?.streams, session]);
 
-  const streamsError = query.error ? toErrorMessage(query.error, "Failed to load streams.") : null;
+  const streamsError = query.error ? toErrorMessage(query.error, "카메라 목록을 불러오지 못했습니다.") : null;
 
   const refreshStreams = useCallback(async () => {
     if (!session) {

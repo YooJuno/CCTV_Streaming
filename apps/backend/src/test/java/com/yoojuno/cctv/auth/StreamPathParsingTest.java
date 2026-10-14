@@ -30,5 +30,6 @@ class StreamPathParsingTest {
         assertThat(StreamAccessFilter.extractStreamId("/hls/application.properties")).isNull();
         assertThat(StreamAccessFilter.extractStreamId("/hls/.env")).isNull();
         assertThat(StreamAccessFilter.extractStreamId("/api/streams")).isNull();
+        assertThat(StreamAccessFilter.extractStreamId("/hls/" + "a".repeat(65) + ".m3u8")).isNull();
     }
 }

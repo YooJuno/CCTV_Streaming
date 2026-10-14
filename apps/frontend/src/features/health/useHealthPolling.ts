@@ -73,6 +73,8 @@ export default function useHealthPolling(session: AuthSession | null): UseHealth
           return;
         }
         consecutiveFailures += 1;
+        // An old LIVE snapshot must not look current after the server becomes unreachable.
+        setStreamHealthById({});
         // Quote the delay the timer below will actually use; computing it separately here made
         // the warning understate the wait whenever the tab was hidden.
         const backoffMs = computeNextPollDelayMs(
@@ -80,8 +82,8 @@ export default function useHealthPolling(session: AuthSession | null): UseHealth
           consecutiveFailures,
           document.visibilityState,
         );
-        const message = toErrorMessage(error, "Failed to check stream health.");
-        setHealthWarning(`Health polling delayed (${(backoffMs / 1000).toFixed(1)}s): ${message}`);
+        const message = toErrorMessage(error, "카메라 상태를 확인하지 못했습니다.");
+        setHealthWarning(`상태 갱신이 지연되고 있습니다. ${(backoffMs / 1000).toFixed(0)}초 후 다시 확인합니다. ${message}`);
       } finally {
         if (cancelled) {
           return;
